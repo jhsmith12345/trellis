@@ -42,5 +42,17 @@ infra/terraform/*.tfplan
 # Secrets & credentials
 *.pem
 *.key
+sa-key.json
 service-account*.json
 credentials*.json
+
+# Test artifacts
+test-results/
+frontend/test-results/
+playwright-report/
+
+# TypeScript build info
+frontend/tsconfig.tsbuildinfo
+
+# MCP config (local tooling)
+.mcp.json

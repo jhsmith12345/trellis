@@ -1,33 +1,51 @@
-"""WebSocket relay service for the clinical voice AI platform.
+"""WebSocket relay service for voice intake sessions.
 
-Ported from live-voice-intake-note. Firestore references replaced with
-placeholder DB writes — will be wired to Cloud SQL via the shared backend.
+Bridges browser WebSocket <-> Gemini Live API for real-time voice intake.
+Saves raw transcripts to encounters table. Supports mid-session compression
+when the Gemini Live context window fills up.
+
+Includes:
+- Firebase JWT verification (HIPAA requirement)
+- Practice profile injection (insurance, rates, scheduling)
+- Tool calling for appointment scheduling
+- Confirmation emails after booking
 """
 import asyncio
 import json
 import logging
+import sys
 import time
-import uuid
 
-from audio_recorder import AudioRecorder
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from gemini_session import (
-    build_client_context,
-    extract_intake_data,
-    generate_note,
-    get_system_prompt,
-    run_voice_session,
-    transcribe_audio,
-    validate_intake_data,
-)
 
+from auth import verify_token
+from api_client import get_practice_profile
+from booking_emails import send_clinician_confirmation, send_client_confirmation
 from config import ALLOWED_ORIGINS
+from context import compress_mid_session, get_context_for_client
+from gemini_session import build_system_prompt, run_voice_session
 
-logging.basicConfig(level=logging.INFO)
+# Add shared module to path (works both locally and in Docker)
+from pathlib import Path as _Path
+_here = _Path(__file__).resolve().parent
+sys.path.insert(0, str(_here.parent / "shared"))  # local dev: backend/shared
+sys.path.insert(0, str(_here / "shared"))          # Docker: /app/shared
+from db import close_pool, create_encounter, get_client_transcripts, update_encounter, get_client, get_clinician
+from alerts import notify_bd_new_intake
+
+from request_logging import RequestLoggingMiddleware
+from safe_logging import configure_safe_logging
+
+# Configure PHI-safe logging before any other operations
+configure_safe_logging()
+
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Clinical Voice AI Relay", version="1.0.0")
+
+# PHI-safe request logging middleware
+app.add_middleware(RequestLoggingMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -38,31 +56,9 @@ app.add_middleware(
 )
 
 
-# ---------------------------------------------------------------------------
-# Placeholder DB layer — will be replaced with Cloud SQL queries
-# ---------------------------------------------------------------------------
-
-async def db_create_session(session_data: dict) -> str:
-    """Placeholder: create a session record. Returns session ID."""
-    session_id = uuid.uuid4().hex[:20]
-    logger.info("DB placeholder: create session %s — %s", session_id, list(session_data.keys()))
-    return session_id
-
-
-async def db_update_session(session_id: str, update_data: dict) -> None:
-    """Placeholder: update a session record."""
-    logger.info("DB placeholder: update session %s — %s", session_id, list(update_data.keys()))
-
-
-async def db_get_client(client_id: str) -> dict | None:
-    """Placeholder: fetch a client record."""
-    logger.info("DB placeholder: get client %s", client_id)
-    return None
-
-
-# ---------------------------------------------------------------------------
-# Endpoints
-# ---------------------------------------------------------------------------
+@app.on_event("shutdown")
+async def shutdown():
+    await close_pool()
 
 
 @app.get("/health")
@@ -72,20 +68,17 @@ def health():
 
 @app.websocket("/ws/session")
 async def websocket_session(ws: WebSocket):
-    """Main WebSocket endpoint for voice sessions."""
+    """Voice intake WebSocket endpoint with context injection and mid-session compression."""
     await ws.accept()
 
-    recorder = None
     start_time = None
-    session_type = None
     client_id = None
-    note_format = None
-    session_id = None
-    transcript = ""
-    structured = None
+    encounter_id = None
+    full_transcript = ""
+    session_context = {}
 
     try:
-        # Step 1: Wait for auth message
+        # ── Auth handshake ──
         raw = await asyncio.wait_for(ws.receive_text(), timeout=10)
         auth_msg = json.loads(raw)
 
@@ -94,88 +87,126 @@ async def websocket_session(ws: WebSocket):
             await ws.close(code=4001)
             return
 
-        # Step 2: Validate auth
-        # TODO: Wire up Firebase Auth token verification
         token = auth_msg.get("token")
         if not token:
             await ws.send_json({"type": "error", "message": "token required"})
             await ws.close(code=4001)
             return
 
-        session_type = auth_msg.get("sessionType", "note")
-        client_id = auth_msg.get("clientId")
-        note_format = auth_msg.get("noteFormat", "SOAP")
+        # ── Verify Firebase JWT ──
+        try:
+            verified_user = verify_token(token)
+            logger.info("JWT verified for uid=%s", verified_user["uid"])
+        except ValueError as e:
+            logger.warning("JWT verification failed: %s", e)
+            await ws.send_json({"type": "error", "message": "Invalid or expired token"})
+            await ws.close(code=4003)
+            return
 
+        client_id = auth_msg.get("clientId")
         if not client_id:
             await ws.send_json({"type": "error", "message": "clientId is required"})
             await ws.close(code=4002)
             return
 
-        # Create session record (placeholder)
-        session_id = await db_create_session({
-            "clientId": client_id,
-            "type": session_type,
-            "status": "processing",
-        })
+        # Ensure the authenticated user matches the claimed clientId
+        if verified_user["uid"] != client_id:
+            logger.warning(
+                "Client ID mismatch: token uid=%s, claimed clientId=%s",
+                verified_user["uid"], client_id,
+            )
+            await ws.send_json({"type": "error", "message": "clientId does not match authenticated user"})
+            await ws.close(code=4003)
+            return
 
-        # Set up audio recorder
-        if session_type == "intake":
-            gcs_path = f"audio/intake/{client_id}/{session_id}.webm"
+        # ── Resolve clinician for this client ──
+        # Look up the client's primary_clinician_id, fall back to practice owner
+        resolved_clinician_uid = None
+        try:
+            client_record = await get_client(client_id)
+            if client_record and client_record.get("primary_clinician_id"):
+                resolved_clinician_uid = client_record["primary_clinician_id"]
+                logger.info("Client assigned to clinician: %s", resolved_clinician_uid)
+        except Exception as e:
+            logger.warning("Failed to look up client record: %s", e)
+
+        # ── Fetch practice profile (for the resolved clinician) ──
+        practice_profile = await get_practice_profile(
+            token=token,
+            clinician_uid=resolved_clinician_uid,
+        )
+        if practice_profile:
+            # If no resolved clinician, use the profile's clinician_uid (practice owner)
+            if not resolved_clinician_uid:
+                resolved_clinician_uid = practice_profile.get("clinician_uid")
+            logger.info(
+                "Loaded practice profile: %s (clinician: %s, insurances: %d, rates: intake=%s, session=%s)",
+                practice_profile.get("practice_name"),
+                practice_profile.get("clinician_name"),
+                len(practice_profile.get("accepted_insurances", [])),
+                practice_profile.get("intake_rate"),
+                practice_profile.get("session_rate"),
+            )
         else:
-            gcs_path = f"audio/notes/{client_id}/{session_id}.webm"
-        recorder = AudioRecorder(gcs_path)
+            logger.warning("No practice profile found — insurance/scheduling features will be limited")
 
-        system_prompt = get_system_prompt(session_type, note_format, "Client", 1)
+        # Build session context for tool calls
+        session_context = {
+            "client_id": client_id,
+            "client_email": verified_user.get("email", ""),
+            "token": token,
+            "practice_profile": practice_profile,
+            "clinician_id": resolved_clinician_uid,
+        }
 
-        # Step 3: Send ready signal
-        await ws.send_json({
-            "type": "ready",
-            "sessionId": session_id,
-        })
+        # ── Create encounter record ──
+        encounter_id = await create_encounter(
+            client_id=client_id,
+            encounter_type="intake",
+            source="voice",
+        )
+        logger.info("Created encounter %s for client %s", encounter_id, client_id)
 
+        # ── Load prior context ──
+        prior_transcripts = await get_client_transcripts(client_id)
+        context = await get_context_for_client(prior_transcripts)
+        logger.info(
+            "Loaded %d prior transcripts for client %s (context: %d chars)",
+            len(prior_transcripts), client_id, len(context),
+        )
+
+        # ── Send ready ──
+        await ws.send_json({"type": "ready", "sessionId": encounter_id})
         start_time = time.time()
 
-        if session_type == "record":
-            # Record-only mode: no Gemini connection, just buffer audio
-            logger.info("Starting record-only session")
+        # ── Voice session loop (handles mid-session compression) ──
+        while True:
+            system_prompt = build_system_prompt(context, practice_profile)
+
+            logger.info("Starting Gemini Live connection (prompt: %d chars)", len(system_prompt))
             session_active = [True]
-            try:
-                while session_active[0]:
-                    data = await ws.receive()
-
-                    if data.get("type") == "websocket.disconnect":
-                        logger.info("Browser disconnected during recording")
-                        break
-
-                    if data.get("bytes"):
-                        if recorder:
-                            recorder.write_chunk(data["bytes"])
-
-                    elif data.get("text"):
-                        msg = json.loads(data["text"])
-                        if msg.get("type") == "end":
-                            logger.info("Received end message, stopping recording")
-                            break
-            except WebSocketDisconnect:
-                logger.info("Browser disconnected during recording")
-
-            # Post-process: transcribe + generate note
-            if recorder:
-                audio_data = recorder.get_audio_data()
-                if audio_data and len(audio_data) > 1000:
-                    logger.info("Transcribing recorded audio (%d bytes)", len(audio_data))
-                    transcript = transcribe_audio(audio_data)
-                    logger.info("Transcription complete, length: %d", len(transcript))
-
-            logger.info("Record session ended, transcript length: %d", len(transcript))
-        else:
-            # Step 4: Run the voice session (handles Gemini connection + relay loops)
-            logger.info("Starting voice session via SDK (type=%s)", session_type)
-            session_active = [True]
-            transcript, structured = await run_voice_session(
-                ws, system_prompt, session_active, recorder,
+            segment, exit_reason = await run_voice_session(
+                ws, system_prompt, session_active, session_context,
             )
-            logger.info("Voice session ended, transcript length: %d", len(transcript))
+            full_transcript += segment
+
+            if exit_reason == "compression_needed":
+                logger.info("Mid-session compression triggered")
+                try:
+                    await ws.send_json({
+                        "type": "transcript",
+                        "text": "\n[System: Organizing notes, one moment...]\n",
+                    })
+                except WebSocketDisconnect:
+                    break
+
+                # Compress all context + current transcript
+                raw_prior = "\n\n".join(t["transcript"] for t in prior_transcripts)
+                context = await compress_mid_session(raw_prior, full_transcript)
+                logger.info("Compression complete, new context: %d chars", len(context))
+                continue
+            else:
+                break
 
     except WebSocketDisconnect:
         logger.info("Client disconnected")
@@ -186,46 +217,68 @@ async def websocket_session(ws: WebSocket):
     except Exception as e:
         logger.error("Session error: %s: %s", type(e).__name__, e)
     finally:
-        # Finalize session
-        duration = time.time() - start_time if start_time else 0
+        duration = round(time.time() - start_time) if start_time else 0
 
-        if recorder:
+        if encounter_id and full_transcript:
             try:
-                recorder.finalize()
-            except Exception:
-                logger.error("Failed to finalize audio upload")
+                await update_encounter(
+                    encounter_id,
+                    transcript=full_transcript,
+                    duration_sec=duration,
+                    status="complete",
+                )
+                logger.info(
+                    "Saved encounter %s: %d chars, %ds",
+                    encounter_id, len(full_transcript), duration,
+                )
 
-        if session_id and transcript is not None:
-            try:
-                note_result = None
-                update_data = {
-                    "audioDurationSeconds": round(duration),
-                    "audioRef": recorder.gcs_path if recorder else "",
-                    "transcript": transcript,
-                }
+                # Alert BD of new warm lead
+                notify_bd_new_intake(
+                    client_name=client_id,  # best we have from voice
+                    source="voice",
+                    transcript=full_transcript,
+                    encounter_id=encounter_id,
+                )
+            except Exception as e:
+                logger.error("Failed to save encounter: %s: %s", type(e).__name__, e)
 
-                if session_type == "intake" and structured:
-                    update_data["status"] = "draft"
-                elif len(transcript.strip()) > 20:
-                    logger.info("Generating %s note from transcript (%d chars)", note_format, len(transcript))
-                    note_result = generate_note(transcript, note_format or "SOAP")
-                    if note_result:
-                        logger.info("Note generated successfully")
-                        update_data["status"] = "draft"
-                        update_data["note"] = note_result
-                    else:
-                        logger.error("Note generation failed")
-
-                await db_update_session(session_id, update_data)
+            # ── Send confirmation emails if a booking was made ──
+            booking = session_context.get("booking_result")
+            if booking:
+                logger.info("Sending booking confirmation emails for appointment %s", booking.get("id"))
+                try:
+                    send_clinician_confirmation(
+                        clinician_email=booking.get("clinician_email", ""),
+                        clinician_name=booking.get("clinician_name", "Clinician"),
+                        practice_name=booking.get("practice_name", ""),
+                        client_name=booking.get("client_name", ""),
+                        client_email=booking.get("client_email", ""),
+                        scheduled_at=booking.get("scheduled_at", ""),
+                        meet_link=booking.get("meet_link"),
+                        duration_minutes=booking.get("duration_minutes", 60),
+                        transcript=full_transcript,
+                        appointment_id=booking.get("id"),
+                    )
+                except Exception as e:
+                    logger.error("Failed to send clinician confirmation: %s: %s", type(e).__name__, e)
 
                 try:
-                    await ws.send_json({
-                        "type": "complete",
-                        "sessionId": session_id,
-                        "result": note_result,
-                    })
-                except Exception:
-                    pass
+                    send_client_confirmation(
+                        client_email=booking.get("client_email", ""),
+                        client_name=booking.get("client_name", ""),
+                        clinician_name=booking.get("clinician_name", "your clinician"),
+                        practice_name=booking.get("practice_name", ""),
+                        scheduled_at=booking.get("scheduled_at", ""),
+                        meet_link=booking.get("meet_link"),
+                        duration_minutes=booking.get("duration_minutes", 60),
+                    )
+                except Exception as e:
+                    logger.error("Failed to send client confirmation: %s: %s", type(e).__name__, e)
 
-            except Exception as finalize_err:
-                logger.error("Failed to finalize session data: %s: %s", type(finalize_err).__name__, finalize_err)
+            try:
+                await ws.send_json({
+                    "type": "complete",
+                    "sessionId": encounter_id,
+                })
+            except Exception:
+                pass

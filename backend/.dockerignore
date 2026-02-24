@@ -1,0 +1,5 @@
+# Don't copy local env files or venvs into Docker images
+**/.env
+**/venv/
+**/__pycache__/
+**/*.pyc

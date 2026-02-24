@@ -1,10 +1,150 @@
-function App() {
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { AuthProvider } from "./components/AuthProvider";
+import { ReauthProvider } from "./components/ReauthProvider";
+import { ReauthModal } from "./components/ReauthModal";
+import { useAuth } from "./hooks/useAuth";
+import { RoleSelector } from "./components/RoleSelector";
+import { ClinicianShell } from "./components/ClinicianShell";
+import { ClientShell } from "./components/ClientShell";
+import { LoadingSpinner } from "./components/LoadingSpinner";
+import LandingPage from "./pages/LandingPage";
+import OnboardingPage from "./pages/OnboardingPage";
+import DashboardPage from "./pages/DashboardPage";
+import ClientListPage from "./pages/ClientListPage";
+import ClientDetailPage from "./pages/ClientDetailPage";
+import PracticeSetupPage from "./pages/PracticeSetupPage";
+import PracticeSettingsPage from "./pages/PracticeSettingsPage";
+import SigningPage from "./pages/SigningPage";
+import SetupWizardPage from "./pages/SetupWizardPage";
+import SchedulePage from "./pages/SchedulePage";
+import NoteEditorPage from "./pages/NoteEditorPage";
+import TreatmentPlanEditorPage from "./pages/TreatmentPlanEditorPage";
+import BillingPage from "./pages/BillingPage";
+import AuditLogPage from "./pages/AuditLogPage";
+import TeamManagementPage from "./pages/TeamManagementPage";
+import ClientDashboardPage from "./pages/client/ClientDashboardPage";
+import ClientAppointmentsPage from "./pages/client/ClientAppointmentsPage";
+import ClientDocumentsPage from "./pages/client/ClientDocumentsPage";
+import ClientBillingPage from "./pages/client/ClientBillingPage";
+import type { ReactNode } from "react";
+
+/** Requires Firebase auth. Shows role selector if unregistered. */
+function ProtectedRoute({ children }: { children: ReactNode }) {
+  const { user, loading, registered, roleLoading } = useAuth();
+  if (loading || roleLoading) return <LoadingSpinner />;
+  if (!user) return <Navigate to="/" replace />;
+  if (!registered) return <RoleSelector />;
+  return <>{children}</>;
+}
+
+/** Requires clinician role. */
+function ClinicianRoute({ children }: { children: ReactNode }) {
+  const { user, loading, role, roleLoading, registered } = useAuth();
+  if (loading || roleLoading) return <LoadingSpinner />;
+  if (!user) return <Navigate to="/" replace />;
+  if (!registered) return <RoleSelector />;
+  if (role !== "clinician") return <Navigate to="/client/dashboard" replace />;
+  return <>{children}</>;
+}
+
+/** Requires client role. */
+function ClientRoute({ children }: { children: ReactNode }) {
+  const { user, loading, role, roleLoading, registered } = useAuth();
+  if (loading || roleLoading) return <LoadingSpinner />;
+  if (!user) return <Navigate to="/" replace />;
+  if (!registered) return <RoleSelector />;
+  if (role !== "client") return <Navigate to="/dashboard" replace />;
+  return <>{children}</>;
+}
+
+/** Redirect authenticated users to their role's home page. */
+function RoleRedirect() {
+  const { user, loading, role, roleLoading, registered } = useAuth();
+  if (loading || roleLoading) return <LoadingSpinner />;
+  if (!user || !registered) return null;
+  if (role === "clinician") return <Navigate to="/dashboard" replace />;
+  if (role === "client") return <Navigate to="/client/dashboard" replace />;
+  return null;
+}
+
+function AppRoutes() {
   return (
-    <div>
-      <h1>SOR EHR</h1>
-      <p>Behavioral health EHR platform</p>
-    </div>
+    <Routes>
+      <Route path="/" element={<><RoleRedirect /><LandingPage /></>} />
+
+      {/* Clinician routes — wrapped in sidebar shell */}
+      <Route
+        element={
+          <ClinicianRoute>
+            <ClinicianShell />
+          </ClinicianRoute>
+        }
+      >
+        <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/clients" element={<ClientListPage />} />
+        <Route path="/clients/:clientId" element={<ClientDetailPage />} />
+        <Route path="/notes/:noteId" element={<NoteEditorPage />} />
+        <Route path="/treatment-plans/:planId" element={<TreatmentPlanEditorPage />} />
+        <Route path="/schedule" element={<SchedulePage />} />
+        <Route path="/billing" element={<BillingPage />} />
+        <Route path="/settings/practice" element={<PracticeSettingsPage />} />
+        <Route path="/settings/team" element={<TeamManagementPage />} />
+        <Route path="/settings/audit-log" element={<AuditLogPage />} />
+      </Route>
+
+      {/* Clinician onboarding — no sidebar */}
+      <Route
+        path="/setup"
+        element={
+          <ClinicianRoute>
+            <PracticeSetupPage />
+          </ClinicianRoute>
+        }
+      />
+
+      {/* Client portal routes — wrapped in client shell */}
+      <Route
+        element={
+          <ClientRoute>
+            <ClientShell />
+          </ClientRoute>
+        }
+      >
+        <Route path="/client/dashboard" element={<ClientDashboardPage />} />
+        <Route path="/client/appointments" element={<ClientAppointmentsPage />} />
+        <Route path="/client/documents" element={<ClientDocumentsPage />} />
+        <Route path="/client/billing" element={<ClientBillingPage />} />
+      </Route>
+
+      {/* Client onboarding — no shell (standalone flow) */}
+      <Route
+        path="/onboarding"
+        element={
+          <ProtectedRoute>
+            <OnboardingPage />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Public signing page */}
+      <Route path="/sign/:packageId" element={<SigningPage />} />
+
+      {/* Public setup wizard — no auth required */}
+      <Route path="/setup-wizard" element={<SetupWizardPage />} />
+    </Routes>
   );
 }
 
-export default App;
+export default function App() {
+  return (
+    <BrowserRouter>
+      <AuthProvider>
+        <ReauthProvider>
+          <AppRoutes />
+          {/* HIPAA: Re-auth modal for sensitive actions (signing, discharge, etc.) */}
+          <ReauthModal />
+        </ReauthProvider>
+      </AuthProvider>
+    </BrowserRouter>
+  );
+}

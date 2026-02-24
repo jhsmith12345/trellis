@@ -1,0 +1,171 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Playfair Display", ui-serif, Georgia, serif;
+
+  /* Teal / sage primary palette */
+  --color-teal-50: #f0fdfa;
+  --color-teal-100: #ccfbf1;
+  --color-teal-200: #99f6e4;
+  --color-teal-300: #5eead4;
+  --color-teal-400: #2dd4bf;
+  --color-teal-500: #14b8a6;
+  --color-teal-600: #0d9488;
+  --color-teal-700: #0f766e;
+  --color-teal-800: #115e59;
+  --color-teal-900: #134e4a;
+
+  --color-sage-50: #f6f7f4;
+  --color-sage-100: #e8ebe3;
+  --color-sage-200: #d4d9cb;
+  --color-sage-300: #b5bda8;
+  --color-sage-400: #95a083;
+  --color-sage-500: #788667;
+  --color-sage-600: #5e6b50;
+  --color-sage-700: #4a5440;
+  --color-sage-800: #3d4536;
+  --color-sage-900: #343b2f;
+
+  /* Warm amber accent */
+  --color-amber-50: #fffbeb;
+  --color-amber-100: #fef3c7;
+  --color-amber-200: #fde68a;
+  --color-amber-300: #fcd34d;
+  --color-amber-400: #fbbf24;
+  --color-amber-500: #f59e0b;
+  --color-amber-600: #d97706;
+
+  /* Neutral warmth */
+  --color-warm-50: #fafaf9;
+  --color-warm-100: #f5f5f4;
+  --color-warm-200: #e7e5e4;
+  --color-warm-300: #d6d3d1;
+  --color-warm-400: #a8a29e;
+  --color-warm-500: #78716c;
+  --color-warm-600: #57534e;
+  --color-warm-700: #44403c;
+  --color-warm-800: #292524;
+  --color-warm-900: #1c1917;
+}
+
+body {
+  @apply bg-warm-50 text-warm-800 font-sans antialiased;
+}
+
+/* Safe area padding for mobile bottom nav (notched devices) */
+.safe-area-pb {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* TipTap editor styles */
+.tiptap {
+  outline: none;
+  min-height: 80px;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--color-warm-700);
+}
+
+.tiptap p {
+  margin-bottom: 0.5em;
+}
+
+.tiptap p:last-child {
+  margin-bottom: 0;
+}
+
+.tiptap h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-top: 0.75em;
+  margin-bottom: 0.25em;
+  color: var(--color-warm-800);
+}
+
+.tiptap h4 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin-top: 0.5em;
+  margin-bottom: 0.25em;
+  color: var(--color-warm-700);
+}
+
+.tiptap ul,
+.tiptap ol {
+  padding-left: 1.25em;
+  margin-bottom: 0.5em;
+}
+
+.tiptap ul {
+  list-style-type: disc;
+}
+
+.tiptap ol {
+  list-style-type: decimal;
+}
+
+.tiptap li {
+  margin-bottom: 0.15em;
+}
+
+.tiptap strong {
+  font-weight: 600;
+}
+
+.tiptap em {
+  font-style: italic;
+}
+
+.tiptap u {
+  text-decoration: underline;
+}
+
+.tiptap blockquote {
+  border-left: 3px solid var(--color-warm-200);
+  padding-left: 1em;
+  margin-left: 0;
+  color: var(--color-warm-500);
+}
+
+/* Placeholder styling */
+.tiptap p.is-editor-empty:first-child::before {
+  color: var(--color-warm-300);
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+/* Read-only TipTap content (for signed notes) */
+.tiptap-content .tiptap {
+  min-height: auto;
+}
+
+.tiptap-content .tiptap p {
+  margin-bottom: 0.5em;
+}
+
+.tiptap-content .tiptap h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-top: 0.75em;
+  margin-bottom: 0.25em;
+}
+
+.tiptap-content .tiptap h4 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin-top: 0.5em;
+  margin-bottom: 0.25em;
+}
+
+.tiptap-content .tiptap ul {
+  list-style-type: disc;
+  padding-left: 1.25em;
+}
+
+.tiptap-content .tiptap ol {
+  list-style-type: decimal;
+  padding-left: 1.25em;
+}
