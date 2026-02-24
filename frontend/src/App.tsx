@@ -61,10 +61,18 @@ function ClientRoute({ children }: { children: ReactNode }) {
 function RoleRedirect() {
   const { user, loading, role, roleLoading, registered } = useAuth();
   if (loading || roleLoading) return <LoadingSpinner />;
-  if (!user || !registered) return null;
+  if (!user) return null;
+  if (!registered) return <Navigate to="/onboarding" replace />;
   if (role === "clinician") return <Navigate to="/dashboard" replace />;
   if (role === "client") return <Navigate to="/client/dashboard" replace />;
   return null;
+}
+
+/** Clinicians who end up on /onboarding get sent to /dashboard instead. */
+function OnboardingGuard() {
+  const { role } = useAuth();
+  if (role === "clinician") return <Navigate to="/dashboard" replace />;
+  return <OnboardingPage />;
 }
 
 function AppRoutes() {
@@ -117,11 +125,12 @@ function AppRoutes() {
       </Route>
 
       {/* Client onboarding — no shell (standalone flow) */}
+      {/* Clinicians who land here after role selection get redirected to /dashboard */}
       <Route
         path="/onboarding"
         element={
           <ProtectedRoute>
-            <OnboardingPage />
+            <OnboardingGuard />
           </ProtectedRoute>
         }
       />

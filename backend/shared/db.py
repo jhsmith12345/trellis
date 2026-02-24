@@ -107,6 +107,67 @@ async def get_user(firebase_uid: str) -> dict | None:
     }
 
 
+async def check_user_has_data(firebase_uid: str, role: str) -> bool:
+    """Check if a user has real data in their current role that prevents switching."""
+    pool = await get_pool()
+    if role == "clinician":
+        row = await pool.fetchrow(
+            """
+            SELECT (
+                (SELECT count(*) FROM clients WHERE primary_clinician_id = $1) +
+                (SELECT count(*) FROM encounters WHERE clinician_id = $1)
+            ) AS total
+            """,
+            firebase_uid,
+        )
+    else:
+        row = await pool.fetchrow(
+            """
+            SELECT (
+                (SELECT count(*) FROM encounters WHERE client_id = $1) +
+                (SELECT count(*) FROM appointments WHERE client_id = $1)
+            ) AS total
+            """,
+            firebase_uid,
+        )
+    return row["total"] > 0 if row else False
+
+
+async def delete_clinician_and_practice(firebase_uid: str) -> None:
+    """Delete clinician record and solo practice if no other clinicians remain."""
+    pool = await get_pool()
+    # Get clinician's practice info
+    clinician = await pool.fetchrow(
+        "SELECT id, practice_id FROM clinicians WHERE firebase_uid = $1",
+        firebase_uid,
+    )
+    if not clinician:
+        return
+
+    practice_id = str(clinician["practice_id"])
+
+    # Delete the clinician record
+    await pool.execute(
+        "DELETE FROM clinicians WHERE firebase_uid = $1", firebase_uid
+    )
+
+    # If no other clinicians remain, delete the practice
+    remaining = await pool.fetchval(
+        "SELECT count(*) FROM clinicians WHERE practice_id = $1::uuid",
+        practice_id,
+    )
+    if remaining == 0:
+        await pool.execute(
+            "DELETE FROM practices WHERE id = $1::uuid", practice_id
+        )
+
+    # Clear practice_id on the user record
+    await pool.execute(
+        "UPDATE users SET practice_id = NULL WHERE firebase_uid = $1",
+        firebase_uid,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Practices
 # ---------------------------------------------------------------------------

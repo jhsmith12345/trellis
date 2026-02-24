@@ -2,6 +2,7 @@
 
 HIPAA Access Control:
   - POST /auth/register    — authenticated user (self-registration)
+  - POST /auth/switch-role — authenticated user (role switching, blocked if data exists)
   - GET  /auth/me          — authenticated user (own profile only)
   - GET  /practice-profile — authenticated user (practice + clinician info)
   - PUT  /practice-profile — clinician (own clinician fields; owner for practice fields)
@@ -42,6 +43,8 @@ from db import (
     update_practice,
     invite_clinician,
     get_practice,
+    check_user_has_data,
+    delete_clinician_and_practice,
 )
 from mailer import send_email
 
@@ -57,6 +60,10 @@ router = APIRouter()
 class RegisterUserRequest(BaseModel):
     role: str  # "clinician" or "client"
     display_name: str | None = None
+
+
+class SwitchRoleRequest(BaseModel):
+    new_role: str  # "clinician" or "client"
 
 
 class PracticeProfileUpdate(BaseModel):
@@ -245,6 +252,114 @@ async def get_me(request: Request, user: dict = Depends(get_current_user)):
             if practice:
                 result["practice"] = practice
 
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Role switching
+# ---------------------------------------------------------------------------
+
+@router.post("/auth/switch-role")
+async def switch_role(
+    body: SwitchRoleRequest,
+    request: Request,
+    user: dict = Depends(get_current_user),
+):
+    """Switch between clinician and client roles.
+
+    Only allowed when the user has no real data in their current role.
+    Clinician→Client: deletes clinician record and solo practice.
+    Client→Clinician: creates a new solo practice and clinician record.
+    """
+    if body.new_role not in ("clinician", "client"):
+        raise HTTPException(400, "Role must be 'clinician' or 'client'")
+
+    user_record = await get_user(user["uid"])
+    if not user_record:
+        raise HTTPException(404, "User not registered")
+
+    current_role = user_record["role"]
+    if current_role == body.new_role:
+        raise HTTPException(400, f"Already in {body.new_role} role")
+
+    # Check for existing data that prevents switching
+    has_data = await check_user_has_data(user["uid"], current_role)
+    if has_data:
+        raise HTTPException(
+            409,
+            detail={
+                "locked": True,
+                "reason": (
+                    "You have existing data as a "
+                    f"{current_role} and cannot switch roles. "
+                    "Please contact support if you need to change roles."
+                ),
+            },
+        )
+
+    practice_id = None
+    practice_role = None
+
+    # Clean up old role resources
+    if current_role == "clinician":
+        await delete_clinician_and_practice(user["uid"])
+
+    # Set up new role resources
+    if body.new_role == "clinician":
+        email = user.get("email", "")
+        display_name = user_record.get("display_name")
+        practice_id = await create_practice(
+            name=display_name or "My Practice",
+            practice_type="solo",
+        )
+        await create_clinician(
+            practice_id=practice_id,
+            firebase_uid=user["uid"],
+            email=email,
+            clinician_name=display_name,
+            practice_role="owner",
+            status="active",
+            joined_at="now()",
+        )
+        practice_role = "owner"
+
+        # Link user to practice
+        from db import get_pool
+        pool = await get_pool()
+        await pool.execute(
+            "UPDATE users SET practice_id = $1::uuid, role = $2 WHERE firebase_uid = $3",
+            practice_id,
+            body.new_role,
+            user["uid"],
+        )
+    else:
+        # Switching to client — just update role
+        from db import get_pool
+        pool = await get_pool()
+        await pool.execute(
+            "UPDATE users SET role = $1 WHERE firebase_uid = $2",
+            body.new_role,
+            user["uid"],
+        )
+
+    await log_audit_event(
+        user_id=user["uid"],
+        action="switched_role",
+        resource_type="user",
+        resource_id=user_record["id"],
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        metadata={
+            "from_role": current_role,
+            "to_role": body.new_role,
+            "practice_id": practice_id,
+        },
+    )
+
+    result = {"role": body.new_role}
+    if practice_id:
+        result["practice_id"] = practice_id
+        result["practice_role"] = practice_role
     return result
 
 

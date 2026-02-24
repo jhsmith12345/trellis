@@ -68,13 +68,23 @@ const NAV_ITEMS = [
 ];
 
 export function ClinicianShell() {
-  const { user, practiceType, isOwner } = useAuth();
+  const { user, practiceType, isOwner, switchRole } = useAuth();
   const navigate = useNavigate();
   const [assistantOpen, setAssistantOpen] = useState(false);
 
   async function handleSignOut() {
     await logOut();
     navigate("/");
+  }
+
+  async function handleSwitchRole() {
+    if (!window.confirm("Switch to Client view? You can switch back anytime if you have no client data.")) return;
+    try {
+      await switchRole("client");
+      navigate("/client/dashboard");
+    } catch (err: any) {
+      alert(err.message || "Failed to switch role");
+    }
   }
 
   const displayName = user?.displayName || user?.email || "Clinician";
@@ -166,6 +176,13 @@ export function ClinicianShell() {
               <p className="text-sm font-medium text-warm-700 truncate">
                 {displayName.split(" ")[0]}
               </p>
+              <button
+                onClick={handleSwitchRole}
+                className="text-xs text-teal-500 hover:text-teal-700 transition-colors"
+              >
+                Switch to Client
+              </button>
+              <span className="text-warm-200 mx-1">|</span>
               <button
                 onClick={handleSignOut}
                 className="text-xs text-warm-400 hover:text-warm-600 transition-colors"

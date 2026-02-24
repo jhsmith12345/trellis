@@ -13,6 +13,7 @@ export interface AuthContextValue {
   getIdToken: () => Promise<string>;
   setRole: (role: AppRole) => void;
   registerRole: (role: "clinician" | "client") => Promise<void>;
+  switchRole: (newRole: "clinician" | "client") => Promise<void>;
   /* Group practice context */
   practiceId: string | null;
   practiceType: PracticeType | null;
@@ -118,23 +119,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setRole(newRole);
       setRegistered(true);
       // Parse practice context from registration response
-      if (data.clinician) {
-        setClinician(data.clinician);
-        setPracticeId(data.clinician.practice_id || null);
-        setPracticeRole(data.clinician.practice_role || null);
+      if (data.practice_id) {
+        setPracticeId(data.practice_id);
       }
-      if (data.practice_type) {
-        setPracticeType(data.practice_type);
+      if (data.practice_role) {
+        setPracticeRole(data.practice_role);
       }
     },
     [user],
+  );
+
+  const switchRole = useCallback(
+    async (newRole: "clinician" | "client") => {
+      if (!user) throw new Error("Not authenticated");
+      const token = await user.getIdToken();
+      const res = await fetch("/api/auth/switch-role", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ new_role: newRole }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        if (res.status === 409 && body.detail?.locked) {
+          throw new Error(body.detail.reason);
+        }
+        throw new Error(body.detail || "Failed to switch role");
+      }
+      // Refresh all auth state from the server
+      await fetchRole(user);
+    },
+    [user, fetchRole],
   );
 
   return (
     <AuthContext.Provider
       value={{
         user, loading, role, roleLoading, registered, getIdToken, setRole, registerRole,
-        practiceId, practiceType, practiceRole, isOwner, clinician,
+        switchRole, practiceId, practiceType, practiceRole, isOwner, clinician,
       }}
     >
       {children}
