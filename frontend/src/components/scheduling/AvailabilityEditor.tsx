@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { AvailabilityWindow } from "../../types";
-import { Button } from "../Button";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const SLOTS_PER_DAY: string[] = [];
@@ -176,6 +175,7 @@ export function AvailabilityEditor({
     try {
       await onSave(gridToWindows());
       setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
     } finally {
       setSaving(false);
     }
@@ -187,14 +187,19 @@ export function AvailabilityEditor({
         <p className="text-sm text-warm-500">
           Click or drag to toggle availability.
         </p>
-        <div className="flex items-center gap-3">
-          {saved && (
-            <span className="text-sm text-teal-600 font-medium">Saved</span>
-          )}
-          <Button size="sm" onClick={handleSave} disabled={saving}>
-            {saving ? "Saving..." : "Save Availability"}
-          </Button>
-        </div>
+        <button
+          onClick={handleSave}
+          disabled={saving || saved}
+          className={`px-4 py-2 text-sm font-semibold rounded-xl transition-all duration-300 ${
+            saved
+              ? "bg-green-600 text-white scale-105"
+              : saving
+                ? "bg-warm-200 text-warm-400 cursor-wait"
+                : "bg-teal-600 text-white hover:bg-teal-700 active:scale-95"
+          }`}
+        >
+          {saved ? "\u2713 Saved" : saving ? "Saving\u2026" : "Save Availability"}
+        </button>
       </div>
 
       <div className="bg-white rounded-2xl border border-warm-200 shadow-sm overflow-hidden">
