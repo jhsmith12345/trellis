@@ -151,6 +151,13 @@ async def delete_clinician_and_practice(firebase_uid: str) -> None:
         "DELETE FROM clinicians WHERE firebase_uid = $1", firebase_uid
     )
 
+    # Clear practice_id on the user record BEFORE deleting the practice
+    # (users.practice_id FK must be cleared first)
+    await pool.execute(
+        "UPDATE users SET practice_id = NULL WHERE firebase_uid = $1",
+        firebase_uid,
+    )
+
     # If no other clinicians remain, delete the practice
     remaining = await pool.fetchval(
         "SELECT count(*) FROM clinicians WHERE practice_id = $1::uuid",
@@ -160,12 +167,6 @@ async def delete_clinician_and_practice(firebase_uid: str) -> None:
         await pool.execute(
             "DELETE FROM practices WHERE id = $1::uuid", practice_id
         )
-
-    # Clear practice_id on the user record
-    await pool.execute(
-        "UPDATE users SET practice_id = NULL WHERE firebase_uid = $1",
-        firebase_uid,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -1023,34 +1024,35 @@ async def replace_clinician_availability(
     windows: list[dict],
 ) -> None:
     """Bulk replace a clinician's availability windows."""
+    from datetime import time as _time
+
     pool = await get_pool()
+    rows = []
+    for w in windows:
+        st = w["start_time"]
+        et = w["end_time"]
+        if isinstance(st, str):
+            parts = st.split(":")
+            st = _time(int(parts[0]), int(parts[1]))
+        if isinstance(et, str):
+            parts = et.split(":")
+            et = _time(int(parts[0]), int(parts[1]))
+        rows.append((clinician_id, clinician_email, w["day_of_week"], st, et))
+
     async with pool.acquire() as conn:
         async with conn.transaction():
             await conn.execute(
                 "DELETE FROM clinician_availability WHERE clinician_id = $1",
                 clinician_id,
             )
-            for w in windows:
-                from datetime import time as _time
-                st = w["start_time"]
-                et = w["end_time"]
-                if isinstance(st, str):
-                    parts = st.split(":")
-                    st = _time(int(parts[0]), int(parts[1]))
-                if isinstance(et, str):
-                    parts = et.split(":")
-                    et = _time(int(parts[0]), int(parts[1]))
-                await conn.execute(
+            if rows:
+                await conn.executemany(
                     """
                     INSERT INTO clinician_availability
                         (clinician_id, clinician_email, day_of_week, start_time, end_time)
                     VALUES ($1, $2, $3, $4::time, $5::time)
                     """,
-                    clinician_id,
-                    clinician_email,
-                    w["day_of_week"],
-                    st,
-                    et,
+                    rows,
                 )
 
 
@@ -2601,3 +2603,146 @@ def __to_json(data):
     if data is None:
         return None
     return data
+
+
+# ---------------------------------------------------------------------------
+# Practice status & client invitations
+# ---------------------------------------------------------------------------
+
+async def is_practice_initialized() -> dict:
+    """Check if any practice exists. Returns initialization status + practice info."""
+    pool = await get_pool()
+    row = await pool.fetchrow(
+        "SELECT id, name, type FROM practices ORDER BY created_at ASC LIMIT 1"
+    )
+    if not row:
+        return {"initialized": False}
+    return {
+        "initialized": True,
+        "practice_name": row["name"],
+        "practice_id": str(row["id"]),
+        "practice_type": row["type"],
+    }
+
+
+async def create_client_invitation(
+    practice_id: str, clinician_uid: str, email: str, token: str
+) -> str:
+    """Insert a client invitation. Returns the invitation UUID."""
+    pool = await get_pool()
+    row = await pool.fetchrow(
+        """
+        INSERT INTO client_invitations (practice_id, clinician_firebase_uid, email, token)
+        VALUES ($1::uuid, $2, $3, $4)
+        RETURNING id
+        """,
+        practice_id,
+        clinician_uid,
+        email,
+        token,
+    )
+    return str(row["id"])
+
+
+async def get_client_invitation_by_token(token: str) -> dict | None:
+    """Look up a pending, non-expired invitation by token. Joins practice + clinician names."""
+    pool = await get_pool()
+    row = await pool.fetchrow(
+        """
+        SELECT ci.id, ci.practice_id, ci.clinician_firebase_uid, ci.email,
+               ci.token, ci.status, ci.expires_at, ci.created_at,
+               p.name AS practice_name,
+               c.clinician_name
+        FROM client_invitations ci
+        JOIN practices p ON p.id = ci.practice_id
+        LEFT JOIN clinicians c ON c.firebase_uid = ci.clinician_firebase_uid
+            AND c.status = 'active'
+        WHERE ci.token = $1
+          AND ci.status = 'pending'
+          AND ci.expires_at > now()
+        """,
+        token,
+    )
+    if not row:
+        return None
+    return {
+        "id": str(row["id"]),
+        "practice_id": str(row["practice_id"]),
+        "clinician_firebase_uid": row["clinician_firebase_uid"],
+        "email": row["email"],
+        "token": row["token"],
+        "practice_name": row["practice_name"],
+        "clinician_name": row["clinician_name"],
+    }
+
+
+async def get_client_invitation_by_email(email: str) -> dict | None:
+    """Look up the most recent pending, non-expired invitation by email."""
+    pool = await get_pool()
+    row = await pool.fetchrow(
+        """
+        SELECT ci.id, ci.practice_id, ci.clinician_firebase_uid, ci.email,
+               ci.token, ci.status, ci.expires_at,
+               p.name AS practice_name,
+               c.clinician_name
+        FROM client_invitations ci
+        JOIN practices p ON p.id = ci.practice_id
+        LEFT JOIN clinicians c ON c.firebase_uid = ci.clinician_firebase_uid
+            AND c.status = 'active'
+        WHERE ci.email = $1
+          AND ci.status = 'pending'
+          AND ci.expires_at > now()
+        ORDER BY ci.created_at DESC
+        LIMIT 1
+        """,
+        email,
+    )
+    if not row:
+        return None
+    return {
+        "id": str(row["id"]),
+        "practice_id": str(row["practice_id"]),
+        "clinician_firebase_uid": row["clinician_firebase_uid"],
+        "email": row["email"],
+        "token": row["token"],
+        "practice_name": row["practice_name"],
+        "clinician_name": row["clinician_name"],
+    }
+
+
+async def accept_client_invitation(token: str) -> None:
+    """Mark an invitation as accepted."""
+    pool = await get_pool()
+    await pool.execute(
+        """
+        UPDATE client_invitations
+        SET status = 'accepted', accepted_at = now()
+        WHERE token = $1
+        """,
+        token,
+    )
+
+
+async def get_active_practice_clinicians(practice_id: str) -> list[dict]:
+    """Return public-facing info for active clinicians in a practice."""
+    pool = await get_pool()
+    rows = await pool.fetch(
+        """
+        SELECT id, firebase_uid, clinician_name, credentials, specialties, bio
+        FROM clinicians
+        WHERE practice_id = $1::uuid AND status = 'active'
+        ORDER BY practice_role = 'owner' DESC, clinician_name ASC
+        """,
+        practice_id,
+    )
+    return [
+        {
+            "id": str(r["id"]),
+            "firebase_uid": r["firebase_uid"],
+            "clinician_name": r["clinician_name"],
+            "credentials": r["credentials"],
+            "specialties": r["specialties"],
+            "bio": r["bio"],
+        }
+        for r in rows
+    ]
