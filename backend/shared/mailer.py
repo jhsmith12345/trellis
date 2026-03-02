@@ -7,7 +7,6 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
 
-import google.auth
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
@@ -17,19 +16,27 @@ SA_KEY_PATH = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "sa-key.json")
 SENDER_EMAIL = os.getenv("SENDER_EMAIL", "ai.agent@stagesofrecovery.net")
 SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
 
+# SA key JSON can be provided as env var (base64-encoded) for Cloud Run
+SA_KEY_JSON = os.getenv("SA_KEY_JSON", "")
+
 
 def _get_gmail_service():
     """Build Gmail API service with delegated credentials.
 
-    Uses SA key file if available (local dev), otherwise falls back to
-    Application Default Credentials (Cloud Run).
+    Loads SA credentials from: SA_KEY_JSON env var (Cloud Run),
+    or sa-key.json file (local dev).
     """
-    if os.path.exists(SA_KEY_PATH):
+    if SA_KEY_JSON:
+        import json
+        import base64
+        key_data = json.loads(base64.b64decode(SA_KEY_JSON))
+        creds = service_account.Credentials.from_service_account_info(
+            key_data, scopes=SCOPES
+        )
+    else:
         creds = service_account.Credentials.from_service_account_file(
             SA_KEY_PATH, scopes=SCOPES
         )
-    else:
-        creds, _ = google.auth.default(scopes=SCOPES)
     delegated = creds.with_subject(SENDER_EMAIL)
     return build("gmail", "v1", credentials=delegated, cache_discovery=False)
 
