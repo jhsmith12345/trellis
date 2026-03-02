@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { AvailabilityWindow } from "../../types";
 import { Button } from "../Button";
 
@@ -26,14 +26,27 @@ interface AvailabilityEditorProps {
   onSave: (windows: AvailabilityWindow[]) => Promise<void>;
 }
 
+/** Parse a data-cell attribute like "3-12" → { day: 3, slot: 12 } */
+function parseCellAttr(el: Element | null): { day: number; slot: number } | null {
+  const attr = el?.getAttribute?.("data-cell");
+  if (!attr) return null;
+  const [d, s] = attr.split("-").map(Number);
+  if (d == null || s == null || isNaN(d) || isNaN(s)) return null;
+  return { day: d, slot: s };
+}
+
 export function AvailabilityEditor({
   initialWindows,
   onSave,
 }: AvailabilityEditorProps) {
-  // Track which (day, slot) combos are active
   const [grid, setGrid] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+
+  // Drag state
+  const dragging = useRef(false);
+  const paintValue = useRef(true); // true = paint ON, false = paint OFF
+  const lastCell = useRef<string | null>(null);
 
   // Initialize grid from windows
   useEffect(() => {
@@ -50,10 +63,86 @@ export function AvailabilityEditor({
     setGrid(g);
   }, [initialWindows]);
 
-  const toggle = useCallback((day: number, slotIdx: number) => {
-    const key = `${day}-${slotIdx}`;
-    setGrid((prev) => ({ ...prev, [key]: !prev[key] }));
+  const paintCell = useCallback((day: number, slot: number, value: boolean) => {
+    const key = `${day}-${slot}`;
+    if (lastCell.current === key) return; // already painted this cell
+    lastCell.current = key;
+    setGrid((prev) => ({ ...prev, [key]: value }));
     setSaved(false);
+  }, []);
+
+  // --- Mouse handlers ---
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      const cell = parseCellAttr(e.target as Element);
+      if (!cell) return;
+      e.preventDefault();
+      dragging.current = true;
+      const key = `${cell.day}-${cell.slot}`;
+      // If cell is currently active, we're erasing; otherwise painting
+      paintValue.current = !grid[key];
+      lastCell.current = null;
+      paintCell(cell.day, cell.slot, paintValue.current);
+    },
+    [grid, paintCell],
+  );
+
+  const handleMouseMove = useCallback(
+    (e: React.MouseEvent) => {
+      if (!dragging.current) return;
+      const cell = parseCellAttr(e.target as Element);
+      if (!cell) return;
+      paintCell(cell.day, cell.slot, paintValue.current);
+    },
+    [paintCell],
+  );
+
+  const handleMouseUp = useCallback(() => {
+    dragging.current = false;
+    lastCell.current = null;
+  }, []);
+
+  // --- Touch handlers ---
+  const handleTouchStart = useCallback(
+    (e: React.TouchEvent) => {
+      const touch = e.touches[0];
+      if (!touch) return;
+      const el = document.elementFromPoint(touch.clientX, touch.clientY);
+      const cell = parseCellAttr(el);
+      if (!cell) return;
+      e.preventDefault(); // prevent scrolling while dragging on grid
+      dragging.current = true;
+      const key = `${cell.day}-${cell.slot}`;
+      paintValue.current = !grid[key];
+      lastCell.current = null;
+      paintCell(cell.day, cell.slot, paintValue.current);
+    },
+    [grid, paintCell],
+  );
+
+  const handleTouchMove = useCallback(
+    (e: React.TouchEvent) => {
+      if (!dragging.current) return;
+      const touch = e.touches[0];
+      if (!touch) return;
+      e.preventDefault();
+      const el = document.elementFromPoint(touch.clientX, touch.clientY);
+      const cell = parseCellAttr(el);
+      if (!cell) return;
+      paintCell(cell.day, cell.slot, paintValue.current);
+    },
+    [paintCell],
+  );
+
+  const handleTouchEnd = useCallback(() => {
+    dragging.current = false;
+    lastCell.current = null;
+  }, []);
+
+  // End drag if mouse leaves the grid
+  const handleMouseLeave = useCallback(() => {
+    dragging.current = false;
+    lastCell.current = null;
   }, []);
 
   // Convert grid back to windows (consecutive slots → single window)
@@ -92,7 +181,7 @@ export function AvailabilityEditor({
     <div>
       <div className="flex items-center justify-between mb-4">
         <p className="text-sm text-warm-500">
-          Click time blocks to toggle availability. Drag to select multiple.
+          Click or drag to toggle availability.
         </p>
         <div className="flex items-center gap-3">
           {saved && (
@@ -106,7 +195,16 @@ export function AvailabilityEditor({
 
       <div className="bg-white rounded-2xl border border-warm-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <div className="grid grid-cols-[56px_repeat(7,1fr)] min-w-[640px]">
+          <div
+            className="grid grid-cols-[56px_repeat(7,1fr)] min-w-[640px] select-none"
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onMouseLeave={handleMouseLeave}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+          >
             {/* Day headers */}
             <div className="bg-warm-50 border-b border-warm-200" />
             {DAYS.map((d, i) => (
@@ -127,14 +225,15 @@ export function AvailabilityEditor({
                 {DAYS.map((_, day) => {
                   const active = grid[`${day}-${slotIdx}`];
                   return (
-                    <button
+                    <div
                       key={day}
-                      onClick={() => toggle(day, slotIdx)}
-                      className={`h-8 border-l border-t border-warm-50 transition-colors ${
+                      data-cell={`${day}-${slotIdx}`}
+                      className={`h-8 border-l border-t border-warm-50 cursor-pointer transition-colors ${
                         active
-                          ? "bg-teal-400 hover:bg-teal-500"
+                          ? "bg-teal-600 hover:bg-teal-700"
                           : "hover:bg-teal-50"
                       }`}
+                      role="gridcell"
                       aria-label={`${DAYS[day]} ${time} ${active ? "available" : "unavailable"}`}
                     />
                   );
@@ -147,7 +246,7 @@ export function AvailabilityEditor({
 
       <div className="flex items-center gap-4 mt-3 text-xs text-warm-500">
         <div className="flex items-center gap-1.5">
-          <div className="w-3 h-3 rounded bg-teal-400" />
+          <div className="w-3 h-3 rounded bg-teal-600" />
           Available
         </div>
         <div className="flex items-center gap-1.5">
