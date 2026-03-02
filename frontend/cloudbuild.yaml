@@ -1,0 +1,17 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '--build-arg=VITE_FIREBASE_API_KEY=AIzaSyBbyp-9ZvRbsW6258Wb-VSpArxPtaI0NFI'
+      - '--build-arg=VITE_FIREBASE_AUTH_DOMAIN=trellis-mvp.firebaseapp.com'
+      - '--build-arg=VITE_FIREBASE_PROJECT_ID=trellis-mvp'
+      - '--build-arg=VITE_FIREBASE_STORAGE_BUCKET=trellis-mvp.firebasestorage.app'
+      - '--build-arg=VITE_FIREBASE_MESSAGING_SENDER_ID=873165183696'
+      - '--build-arg=VITE_FIREBASE_APP_ID=1:873165183696:web:497268c56d5992590b9cd5'
+      - '--build-arg=VITE_API_URL=https://trellis-api-873165183696.us-central1.run.app'
+      - '--build-arg=VITE_WS_URL=wss://trellis-relay-873165183696.us-central1.run.app'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/trellis-mvp/cloud-run-source-deploy/trellis-frontend:latest'
+      - '.'
+images:
+  - 'us-central1-docker.pkg.dev/trellis-mvp/cloud-run-source-deploy/trellis-frontend:latest'
