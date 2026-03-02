@@ -12,7 +12,6 @@ interface BookingFlowProps {
     type: string;
     scheduled_at: string;
     duration_minutes: number;
-    cadence?: "weekly" | "biweekly" | "monthly";
   }) => Promise<void>;
   clientId: string;
   clientEmail: string;
@@ -25,7 +24,8 @@ interface BookingFlowProps {
   ) => Promise<TimeSlot[]>;
 }
 
-type Step = "type" | "clinician" | "slots" | "confirm";
+type Step = "clinician" | "slots" | "confirm";
+const STEPS: Step[] = ["clinician", "slots", "confirm"];
 
 export function BookingFlow({
   onBook,
@@ -34,8 +34,7 @@ export function BookingFlow({
   clientName,
   getSlots,
 }: BookingFlowProps) {
-  const [step, setStep] = useState<Step>("type");
-  const [apptType, setApptType] = useState<"assessment" | "individual">("assessment");
+  const [step, setStep] = useState<Step>("clinician");
   const [clinicianId, setClinicianId] = useState("");
   const [clinicianEmail, setClinicianEmail] = useState("");
   const [slots, setSlots] = useState<TimeSlot[]>([]);
@@ -58,7 +57,7 @@ export function BookingFlow({
         clinicianId,
         start.toISOString(),
         end.toISOString(),
-        apptType,
+        "assessment",
       );
       setSlots(results);
       setStep("slots");
@@ -69,7 +68,6 @@ export function BookingFlow({
     }
   }
 
-  // Group slots by date
   const slotsByDate = useMemo(() => {
     const groups: Record<string, TimeSlot[]> = {};
     for (const s of slots) {
@@ -95,10 +93,9 @@ export function BookingFlow({
         client_id: clientId,
         client_email: clientEmail,
         client_name: clientName,
-        type: apptType,
+        type: "assessment",
         scheduled_at: selectedSlot.start,
         duration_minutes: 60,
-        cadence: "weekly",
       });
       setSuccess(true);
     } catch (err: any) {
@@ -116,11 +113,9 @@ export function BookingFlow({
             <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </div>
-        <h3 className="text-xl font-semibold text-warm-800 mb-2">Appointment Booked</h3>
+        <h3 className="text-xl font-semibold text-warm-800 mb-2">Assessment Booked</h3>
         <p className="text-warm-500 mb-1">
-          {apptType === "individual"
-            ? "4 weekly sessions have been scheduled."
-            : "Your assessment has been scheduled."}
+          Your initial assessment has been scheduled.
         </p>
         <p className="text-sm text-warm-400">Calendar invites have been sent to all participants.</p>
         <Button
@@ -128,7 +123,7 @@ export function BookingFlow({
           size="sm"
           className="mt-6"
           onClick={() => {
-            setStep("type");
+            setStep("clinician");
             setSelectedSlot(null);
             setSlots([]);
             setSuccess(false);
@@ -144,22 +139,22 @@ export function BookingFlow({
     <div>
       {/* Progress steps */}
       <div className="flex items-center gap-2 mb-6">
-        {(["type", "clinician", "slots", "confirm"] as Step[]).map((s, i) => (
+        {STEPS.map((s, i) => (
           <div key={s} className="flex items-center gap-2">
             <div
               className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold ${
                 step === s
                   ? "bg-teal-600 text-white"
-                  : i < ["type", "clinician", "slots", "confirm"].indexOf(step)
+                  : i < STEPS.indexOf(step)
                     ? "bg-teal-100 text-teal-700"
                     : "bg-warm-100 text-warm-400"
               }`}
             >
               {i + 1}
             </div>
-            {i < 3 && (
+            {i < STEPS.length - 1 && (
               <div className={`w-8 h-0.5 ${
-                i < ["type", "clinician", "slots", "confirm"].indexOf(step)
+                i < STEPS.indexOf(step)
                   ? "bg-teal-200"
                   : "bg-warm-100"
               }`} />
@@ -174,46 +169,7 @@ export function BookingFlow({
         </div>
       )}
 
-      {/* Step 1: Select type */}
-      {step === "type" && (
-        <div>
-          <h3 className="text-lg font-semibold text-warm-800 mb-4">
-            What type of appointment?
-          </h3>
-          <div className="grid sm:grid-cols-2 gap-4">
-            {[
-              {
-                value: "assessment" as const,
-                label: "Assessment",
-                desc: "Initial one-time evaluation session",
-              },
-              {
-                value: "individual" as const,
-                label: "Individual",
-                desc: "Weekly recurring therapy sessions (4 weeks)",
-              },
-            ].map((opt) => (
-              <button
-                key={opt.value}
-                onClick={() => {
-                  setApptType(opt.value);
-                  setStep("clinician");
-                }}
-                className={`text-left p-5 rounded-xl border-2 transition-all ${
-                  apptType === opt.value
-                    ? "border-teal-500 bg-teal-50"
-                    : "border-warm-200 hover:border-teal-300 hover:bg-warm-50"
-                }`}
-              >
-                <p className="font-semibold text-warm-800">{opt.label}</p>
-                <p className="text-sm text-warm-500 mt-1">{opt.desc}</p>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Step 2: Enter clinician */}
+      {/* Step 1: Enter clinician */}
       {step === "clinician" && (
         <div>
           <h3 className="text-lg font-semibold text-warm-800 mb-4">
@@ -246,19 +202,14 @@ export function BookingFlow({
                 required
               />
             </div>
-            <div className="flex gap-3">
-              <Button variant="ghost" size="sm" type="button" onClick={() => setStep("type")}>
-                Back
-              </Button>
-              <Button size="sm" type="submit" disabled={loading}>
-                {loading ? "Loading slots..." : "Find Available Slots"}
-              </Button>
-            </div>
+            <Button size="sm" type="submit" disabled={loading}>
+              {loading ? "Loading slots..." : "Find Available Slots"}
+            </Button>
           </form>
         </div>
       )}
 
-      {/* Step 3: Select slot */}
+      {/* Step 2: Select slot */}
       {step === "slots" && (
         <div>
           <div className="flex items-center justify-between mb-4">
@@ -315,16 +266,16 @@ export function BookingFlow({
         </div>
       )}
 
-      {/* Step 4: Confirm */}
+      {/* Step 3: Confirm */}
       {step === "confirm" && selectedSlot && (
         <div>
           <h3 className="text-lg font-semibold text-warm-800 mb-4">
-            Confirm Booking
+            Confirm Assessment
           </h3>
           <div className="bg-warm-50 rounded-xl p-5 space-y-3 mb-6">
             <div className="flex justify-between text-sm">
               <span className="text-warm-500">Type</span>
-              <span className="font-medium text-warm-800 capitalize">{apptType}</span>
+              <span className="font-medium text-warm-800">Assessment</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-warm-500">Date & Time</span>
@@ -349,13 +300,6 @@ export function BookingFlow({
               <span className="text-warm-500">Duration</span>
               <span className="font-medium text-warm-800">60 minutes</span>
             </div>
-            {apptType === "individual" && (
-              <div className="border-t border-warm-200 pt-3 mt-3">
-                <p className="text-sm text-teal-700 font-medium">
-                  This will create 4 weekly appointments at this time.
-                </p>
-              </div>
-            )}
           </div>
           <div className="flex gap-3">
             <Button variant="ghost" onClick={() => setStep("slots")}>
