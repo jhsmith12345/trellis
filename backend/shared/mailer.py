@@ -7,6 +7,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
 
+import google.auth
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
@@ -18,10 +19,17 @@ SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
 
 
 def _get_gmail_service():
-    """Build Gmail API service with delegated credentials."""
-    creds = service_account.Credentials.from_service_account_file(
-        SA_KEY_PATH, scopes=SCOPES
-    )
+    """Build Gmail API service with delegated credentials.
+
+    Uses SA key file if available (local dev), otherwise falls back to
+    Application Default Credentials (Cloud Run).
+    """
+    if os.path.exists(SA_KEY_PATH):
+        creds = service_account.Credentials.from_service_account_file(
+            SA_KEY_PATH, scopes=SCOPES
+        )
+    else:
+        creds, _ = google.auth.default(scopes=SCOPES)
     delegated = creds.with_subject(SENDER_EMAIL)
     return build("gmail", "v1", credentials=delegated, cache_discovery=False)
 
