@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { useVoiceSession, type VoiceStatus } from "../hooks/useVoiceSession";
 import { Button } from "./Button";
 
@@ -27,6 +28,11 @@ function StatusBadge({ status }: { status: VoiceStatus }) {
 export function VoiceIntake() {
   const { status, transcript, error, startSession, endSession } =
     useVoiceSession();
+  const transcriptEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [transcript]);
 
   return (
     <div className="max-w-2xl mx-auto px-6 py-12">
@@ -103,8 +109,9 @@ export function VoiceIntake() {
               </p>
               <div className="space-y-1 text-warm-600 leading-relaxed">
                 {transcript.map((line, i) => (
-                  <span key={i}>{line}</span>
+                  <span key={i}>{line} </span>
                 ))}
+                <div ref={transcriptEndRef} />
               </div>
             </div>
           )}

@@ -35,7 +35,6 @@ information through natural conversation — do not read from a list, make it co
 7. Relevant medical conditions
 8. Goals for therapy
 9. Their insurance provider (or if they prefer to self-pay)
-10. Their email address (needed for appointment confirmation)
 
 Be warm, empathetic, and patient. Start by warmly greeting them and asking their name.
 If someone seems uncomfortable with a question, acknowledge that and offer to skip it.
@@ -94,6 +93,24 @@ You have prior context about this client from previous sessions. Use it to:
 
 Do NOT re-ask information you already have. Focus on gathering anything still missing
 and deepening your understanding of their situation."""
+
+CLIENT_INSURANCE_TEMPLATE = """
+
+--- Client's Insurance (already provided) ---
+The client has already uploaded their insurance card and provided the following information.
+Do NOT ask them about insurance again. Instead, confirm what you have on file and let them
+know whether their plan is accepted (based on the practice's accepted plans listed above).
+
+Subscriber name: {subscriber_name}
+Insurance company: {payer_name}
+Member ID: {member_id}
+Group number: {group_number}
+Plan name: {plan_name}
+Plan type: {plan_type}
+
+If the subscriber name is provided, greet them by that name — do NOT ask for their name again.
+If any other fields say "Not provided", you may briefly ask about that specific missing
+detail, but do not re-ask about fields that are already filled in."""
 
 
 EXTRACTION_PROMPT_TEMPLATE = (
@@ -189,14 +206,29 @@ COMPRESSION_TRIGGER_TOKENS = 100_000
 CHARS_PER_TOKEN = 4
 
 
-def build_system_prompt(prior_context: str, practice_profile: dict | None = None) -> str:
+def build_system_prompt(
+    prior_context: str,
+    practice_profile: dict | None = None,
+    client_insurance: dict | None = None,
+    client_email: str | None = None,
+) -> str:
     """Build the full system prompt with optional prior context and practice info.
 
     Args:
         prior_context: Prior client transcripts/context string
         practice_profile: Practice profile dict from API (includes insurance, rates, etc.)
+        client_insurance: Client's insurance data from their profile (e.g. from card upload)
+        client_email: Client's email from Firebase auth (already known, no need to ask)
     """
     prompt = INTAKE_SYSTEM_PROMPT
+
+    if client_email:
+        prompt += f"""
+
+--- Client Email (already known) ---
+The client's email address is: {client_email}
+Do NOT ask for their email address — you already have it from their sign-in.
+Use this email when booking appointments."""
 
     # Inject practice profile info (insurance, rates, scheduling)
     if practice_profile:
@@ -234,6 +266,21 @@ def build_system_prompt(prior_context: str, practice_profile: dict | None = None
             credentials=credentials,
             intake_duration=intake_duration,
         )
+
+    # Inject client's pre-existing insurance info (e.g. from card upload)
+    if client_insurance:
+        payer = client_insurance.get("payer_name")
+        member = client_insurance.get("member_id")
+        # Only inject if there's at least a payer name or member ID
+        if payer or member:
+            prompt += CLIENT_INSURANCE_TEMPLATE.format(
+                subscriber_name=client_insurance.get("subscriber_name") or "Not provided",
+                payer_name=payer or "Not provided",
+                member_id=member or "Not provided",
+                group_number=client_insurance.get("group_number") or "Not provided",
+                plan_name=client_insurance.get("plan_name") or "Not provided",
+                plan_type=client_insurance.get("plan_type") or "Not provided",
+            )
 
     # Add prior context if available
     if prior_context:
@@ -329,7 +376,7 @@ async def _handle_tool_call(
 
     practice_profile = session_context.get("practice_profile") or {}
     clinician_id = session_context.get("clinician_id") or practice_profile.get("clinician_uid", "")
-    clinician_email = practice_profile.get("email", "")
+    clinician_email = practice_profile.get("clinician_email") or practice_profile.get("email", "")
     token = session_context.get("token", "")
     client_id = session_context.get("client_id", "")
 
@@ -383,7 +430,7 @@ async def _handle_tool_call(
 
         scheduled_at = fc_args.get("scheduled_at", "")
         client_name = fc_args.get("client_name", "")
-        client_email = fc_args.get("client_email", "")
+        client_email = fc_args.get("client_email", "") or session_context.get("client_email", "")
 
         if not scheduled_at or not client_name or not client_email:
             return {"error": "Missing required fields: scheduled_at, client_name, and client_email are all required."}
@@ -485,6 +532,8 @@ async def run_voice_session(
         realtime_input_config=types.RealtimeInputConfig(
             automatic_activity_detection=types.AutomaticActivityDetection(
                 disabled=False,
+                start_of_speech_sensitivity=types.StartSensitivity.START_SENSITIVITY_HIGH,
+                end_of_speech_sensitivity=types.EndSensitivity.END_SENSITIVITY_LOW,
             ),
         ),
         # Safety net: server-side sliding window compression

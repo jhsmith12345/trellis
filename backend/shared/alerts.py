@@ -1,4 +1,4 @@
-"""Business development alerts for new client intake."""
+"""Practice alerts for new client intake."""
 import logging
 import os
 from datetime import datetime, timezone
@@ -7,7 +7,7 @@ from mailer import send_email
 
 logger = logging.getLogger(__name__)
 
-BD_EMAIL = os.getenv("BD_ALERT_EMAIL", "dummy_bd@stagesofrecovery.net")
+BD_EMAIL = os.getenv("BD_ALERT_EMAIL", "")
 
 
 def notify_bd_new_intake(
@@ -112,6 +112,10 @@ Source: {source_label}
 ---
 Trellis — AI-Native Behavioral Health
 """
+
+    if not BD_EMAIL:
+        logger.debug("BD_ALERT_EMAIL not configured — skipping intake alert")
+        return
 
     try:
         send_email(

@@ -35,18 +35,29 @@ from googleapiclient.http import MediaIoBaseDownload
 logger = logging.getLogger(__name__)
 
 SA_KEY_PATH = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "sa-key.json")
-CALENDAR_USER = os.getenv("SENDER_EMAIL", "ai.agent@stagesofrecovery.net")
+CALENDAR_USER = os.getenv("SENDER_EMAIL", "noreply@example.com")
 SCOPES = [
     "https://www.googleapis.com/auth/calendar",
     "https://www.googleapis.com/auth/drive",
 ]
 
+# SA key JSON can be provided as env var (base64-encoded) for Cloud Run
+SA_KEY_JSON = os.getenv("SA_KEY_JSON", "")
+
 
 def _get_credentials():
     """Build delegated credentials for API access."""
-    creds = service_account.Credentials.from_service_account_file(
-        SA_KEY_PATH, scopes=SCOPES
-    )
+    if SA_KEY_JSON:
+        import json
+        import base64
+        key_data = json.loads(base64.b64decode(SA_KEY_JSON))
+        creds = service_account.Credentials.from_service_account_info(
+            key_data, scopes=SCOPES
+        )
+    else:
+        creds = service_account.Credentials.from_service_account_file(
+            SA_KEY_PATH, scopes=SCOPES
+        )
     return creds.with_subject(CALENDAR_USER)
 
 

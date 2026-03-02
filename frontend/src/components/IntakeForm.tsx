@@ -1,6 +1,7 @@
 import { useState, useEffect, type FormEvent } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useClientApi } from "../hooks/useClientApi";
+import { API_BASE } from "../lib/api-config";
 import { Button } from "./Button";
 
 interface IntakeData {
@@ -99,7 +100,7 @@ export function IntakeForm() {
     setSubmitting(true);
     try {
       const token = await getIdToken();
-      const res = await fetch("/api/intake", {
+      const res = await fetch(`${API_BASE}/api/intake`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

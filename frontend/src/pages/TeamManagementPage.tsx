@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useApi } from "../hooks/useApi";
 import { useAuth } from "../hooks/useAuth";
+import { API_BASE } from "../lib/api-config";
 import { Button } from "../components/Button";
 import type { Clinician } from "../types";
 
@@ -160,7 +161,7 @@ export default function TeamManagementPage() {
     setConfirmDeactivateId(null);
     try {
       const token = await getIdToken();
-      const res = await fetch(`/api/practice/team/${clinicianId}`, {
+      const res = await fetch(`${API_BASE}/api/practice/team/${clinicianId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });

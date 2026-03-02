@@ -13,7 +13,7 @@ from googleapiclient.discovery import build
 logger = logging.getLogger(__name__)
 
 SA_KEY_PATH = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "sa-key.json")
-SENDER_EMAIL = os.getenv("SENDER_EMAIL", "ai.agent@stagesofrecovery.net")
+SENDER_EMAIL = os.getenv("SENDER_EMAIL", "noreply@example.com")
 SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
 
 # SA key JSON can be provided as env var (base64-encoded) for Cloud Run

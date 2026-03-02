@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
+import { API_BASE } from "../lib/api-config";
 import { SigningAuthGate } from "../components/signing/SigningAuthGate";
 import { DocumentProgress } from "../components/signing/DocumentProgress";
 import { DocumentViewer } from "../components/signing/DocumentViewer";
@@ -46,7 +47,7 @@ function SigningFlow() {
   const fetchPackage = useCallback(async () => {
     try {
       const token = await getIdToken();
-      const res = await fetch(`/api/documents/packages/${packageId}`, {
+      const res = await fetch(`${API_BASE}/api/documents/packages/${packageId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error("Failed to load documents");
@@ -68,7 +69,7 @@ function SigningFlow() {
   const fetchStoredSignature = useCallback(async () => {
     try {
       const token = await getIdToken();
-      const res = await fetch("/api/documents/signature", {
+      const res = await fetch(`${API_BASE}/api/documents/signature`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
@@ -83,7 +84,7 @@ function SigningFlow() {
   const fetchPracticeProfile = useCallback(async () => {
     try {
       const token = await getIdToken();
-      const res = await fetch("/api/practice-profile", {
+      const res = await fetch(`${API_BASE}/api/practice-profile`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
@@ -124,7 +125,7 @@ function SigningFlow() {
 
       // Store signature for reuse if this is the first one
       if (!storedSignature) {
-        await fetch("/api/documents/signature", {
+        await fetch(`${API_BASE}/api/documents/signature`, {
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,
@@ -136,7 +137,7 @@ function SigningFlow() {
       }
 
       // Sign the document
-      const res = await fetch(`/api/documents/${doc.id}/sign`, {
+      const res = await fetch(`${API_BASE}/api/documents/${doc.id}/sign`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,

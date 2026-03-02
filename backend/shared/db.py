@@ -599,6 +599,7 @@ async def get_practice_profile(clinician_uid: str | None = None) -> dict | None:
         return {
             "id": str(r["id"]),
             "clinician_uid": r["firebase_uid"],
+            "clinician_email": r["email"],
             "practice_name": r["practice_name"],
             "clinician_name": r["clinician_name"],
             "credentials": r["credentials"],

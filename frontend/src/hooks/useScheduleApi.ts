@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { useAuth } from "./useAuth";
+import { API_BASE } from "../lib/api-config";
 import type {
   AvailabilityWindow,
   TimeSlot,
@@ -14,7 +15,7 @@ async function api<T>(
   token: string,
   options?: RequestInit,
 ): Promise<T> {
-  const res = await fetch(path, {
+  const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
       Authorization: `Bearer ${token}`,

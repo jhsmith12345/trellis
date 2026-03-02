@@ -1,12 +1,13 @@
 import { useCallback, useMemo } from "react";
 import { useAuth } from "./useAuth";
+import { API_BASE } from "../lib/api-config";
 
 async function request<T>(
   path: string,
   token: string,
   options?: RequestInit,
 ): Promise<T> {
-  const res = await fetch(path, {
+  const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
       Authorization: `Bearer ${token}`,
@@ -68,7 +69,7 @@ export function useApi() {
   const getBlob = useCallback(
     async (path: string): Promise<Blob> => {
       const token = await getIdToken();
-      const res = await fetch(path, {
+      const res = await fetch(`${API_BASE}${path}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) {

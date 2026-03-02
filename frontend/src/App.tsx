@@ -3,7 +3,7 @@ import { AuthProvider } from "./components/AuthProvider";
 import { ReauthProvider } from "./components/ReauthProvider";
 import { ReauthModal } from "./components/ReauthModal";
 import { useAuth } from "./hooks/useAuth";
-import { RoleSelector } from "./components/RoleSelector";
+import { ClinicianPicker } from "./components/ClinicianPicker";
 import { ClinicianShell } from "./components/ClinicianShell";
 import { ClientShell } from "./components/ClientShell";
 import { LoadingSpinner } from "./components/LoadingSpinner";
@@ -28,12 +28,19 @@ import ClientDocumentsPage from "./pages/client/ClientDocumentsPage";
 import ClientBillingPage from "./pages/client/ClientBillingPage";
 import type { ReactNode } from "react";
 
-/** Requires Firebase auth. Shows role selector if unregistered. */
+/** Shows ClinicianPicker if needed, otherwise loading spinner while auto-registering. */
+function UnregisteredGate() {
+  const { needsClinicianPicker } = useAuth();
+  if (needsClinicianPicker) return <ClinicianPicker />;
+  return <LoadingSpinner />;
+}
+
+/** Requires Firebase auth. Shows picker or spinner while registering. */
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const { user, loading, registered, roleLoading } = useAuth();
   if (loading || roleLoading) return <LoadingSpinner />;
   if (!user) return <Navigate to="/" replace />;
-  if (!registered) return <RoleSelector />;
+  if (!registered) return <UnregisteredGate />;
   return <>{children}</>;
 }
 
@@ -42,7 +49,7 @@ function ClinicianRoute({ children }: { children: ReactNode }) {
   const { user, loading, role, roleLoading, registered } = useAuth();
   if (loading || roleLoading) return <LoadingSpinner />;
   if (!user) return <Navigate to="/" replace />;
-  if (!registered) return <RoleSelector />;
+  if (!registered) return <UnregisteredGate />;
   if (role !== "clinician") return <Navigate to="/client/dashboard" replace />;
   return <>{children}</>;
 }
@@ -52,7 +59,7 @@ function ClientRoute({ children }: { children: ReactNode }) {
   const { user, loading, role, roleLoading, registered } = useAuth();
   if (loading || roleLoading) return <LoadingSpinner />;
   if (!user) return <Navigate to="/" replace />;
-  if (!registered) return <RoleSelector />;
+  if (!registered) return <UnregisteredGate />;
   if (role !== "client") return <Navigate to="/dashboard" replace />;
   return <>{children}</>;
 }

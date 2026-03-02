@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "./useAuth";
+import { WS_BASE } from "../lib/api-config";
 import type { WsServerMessage } from "../types";
 
 export type VoiceStatus =
@@ -133,8 +134,9 @@ export function useVoiceSession(): UseVoiceSessionReturn {
       worklet.connect(audioCtx.destination); // needed for processing
 
       // Connect WebSocket
-      const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-      const wsUrl = `${protocol}://${window.location.host}/ws/session`;
+      const wsUrl = WS_BASE
+        ? `${WS_BASE}/ws/session`
+        : `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/ws/session`;
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 

@@ -129,7 +129,7 @@ export function InsuranceCardUpload({ onComplete, onSkip }: Props) {
           Extracting Insurance Info
         </h3>
         <p className="text-warm-500">
-          Our AI is reading your card. This usually takes a few seconds...
+          Processing your card. This usually takes a few seconds...
         </p>
       </div>
     );

@@ -4,6 +4,9 @@ HIPAA Access Control:
   - POST /auth/register    — authenticated user (self-registration)
   - POST /auth/switch-role — authenticated user (role switching, blocked if data exists)
   - GET  /auth/me          — authenticated user (own profile only)
+  - GET  /practice/status  — public (no auth, returns init state)
+  - GET  /invitations/{token} — public (validates invite token)
+  - GET  /practice/clinicians — public (active clinician list for group practice picker)
   - GET  /practice-profile — authenticated user (practice + clinician info)
   - PUT  /practice-profile — clinician (own clinician fields; owner for practice fields)
   - GET  /practice/team    — owner only
@@ -13,6 +16,7 @@ HIPAA Access Control:
   - All reads and writes logged to audit_events
 """
 import logging
+import os
 import sys
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -45,6 +49,12 @@ from db import (
     get_practice,
     check_user_has_data,
     delete_clinician_and_practice,
+    is_practice_initialized,
+    get_client_invitation_by_token,
+    get_client_invitation_by_email,
+    accept_client_invitation,
+    get_active_practice_clinicians,
+    upsert_client,
 )
 from mailer import send_email
 
@@ -58,8 +68,10 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 
 class RegisterUserRequest(BaseModel):
-    role: str  # "clinician" or "client"
+    role: str | None = None  # "clinician" or "client" — auto-determined if omitted
     display_name: str | None = None
+    invite_token: str | None = None
+    primary_clinician_id: str | None = None
 
 
 class SwitchRoleRequest(BaseModel):
@@ -117,6 +129,56 @@ class UpdateClinicianRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Public endpoints (no auth required)
+# ---------------------------------------------------------------------------
+
+@router.get("/practice/status")
+async def practice_status():
+    """Check if the practice has been initialized. No auth required.
+
+    Called by the landing page before login to determine what UI to show.
+    """
+    info = await is_practice_initialized()
+    if not info["initialized"]:
+        return {"initialized": False}
+    return {
+        "initialized": True,
+        "practice_name": info["practice_name"],
+        "practice_type": info["practice_type"],
+    }
+
+
+@router.get("/invitations/{token}")
+async def validate_invitation(token: str):
+    """Validate a client invite token. No auth required.
+
+    Called by the landing page when ?invite=TOKEN is in the URL.
+    """
+    invitation = await get_client_invitation_by_token(token)
+    if not invitation:
+        raise HTTPException(404, "Invitation not found or expired")
+    return {
+        "practice_name": invitation["practice_name"],
+        "clinician_name": invitation["clinician_name"],
+        "email": invitation["email"],
+    }
+
+
+@router.get("/practice/clinicians")
+async def list_practice_clinicians_public():
+    """List active clinicians for the practice. No auth required.
+
+    Used by the clinician picker during organic client onboarding
+    in group practices. Only returns public-facing info.
+    """
+    info = await is_practice_initialized()
+    if not info["initialized"]:
+        return {"clinicians": []}
+    clinicians = await get_active_practice_clinicians(info["practice_id"])
+    return {"clinicians": clinicians}
+
+
+# ---------------------------------------------------------------------------
 # User registration
 # ---------------------------------------------------------------------------
 
@@ -128,30 +190,63 @@ async def register_user(
 ):
     """Register a user with a role. Called after Firebase Auth signup.
 
+    Role auto-determination (when role is omitted):
+    - No practice exists → clinician (first setup)
+    - Practice exists + pending clinician invite by email → clinician
+    - Practice exists → client (with optional invite_token or primary_clinician_id)
+
     For clinicians: checks for a pending invitation. If found, activates
     and links to existing practice. If not, creates a new solo practice.
+
+    For clients: links to inviting clinician (via token or email), chosen
+    clinician (group practice picker), or practice owner (solo practice).
     """
-    if body.role not in ("clinician", "client"):
+    from datetime import datetime, timezone
+    from db import get_pool
+
+    email = user.get("email", "")
+    practice_info = await is_practice_initialized()
+
+    # --- Determine role ---
+    role = body.role
+    if role and role not in ("clinician", "client"):
         raise HTTPException(400, "Role must be 'clinician' or 'client'")
+
+    if not role:
+        if not practice_info["initialized"]:
+            # First user → clinician (practice setup)
+            role = "clinician"
+        else:
+            # Check for pending clinician invitation by email
+            clinician_invite = await get_clinician_by_email(email) if email else None
+            if clinician_invite and clinician_invite["status"] == "invited":
+                role = "clinician"
+            else:
+                role = "client"
+
+    # Block new clinician registration when practice already exists (unless invited)
+    if role == "clinician" and practice_info["initialized"]:
+        clinician_invite = await get_clinician_by_email(email) if email else None
+        if not (clinician_invite and clinician_invite["status"] == "invited"):
+            raise HTTPException(403, "This practice is already set up. Clinicians must be invited by the practice owner.")
 
     user_id = await upsert_user(
         firebase_uid=user["uid"],
-        email=user.get("email", ""),
-        role=body.role,
+        email=email,
+        role=role,
         display_name=body.display_name,
     )
 
     practice_id = None
     practice_role = None
+    primary_clinician_uid = None
 
-    if body.role == "clinician":
-        # Check for pending invitation by email
-        email = user.get("email", "")
+    if role == "clinician":
+        # Check for pending clinician invitation by email
         invited = await get_clinician_by_email(email) if email else None
 
         if invited and invited["status"] == "invited":
-            # Accept invitation: update placeholder firebase_uid, activate
-            from db import get_pool
+            # Accept clinician invitation
             pool = await get_pool()
             await pool.execute(
                 "UPDATE clinicians SET firebase_uid = $1 WHERE id = $2::uuid",
@@ -162,7 +257,6 @@ async def register_user(
             practice_id = invited["practice_id"]
             practice_role = invited["practice_role"]
 
-            # Link user to practice
             await pool.execute(
                 "UPDATE users SET practice_id = $1::uuid WHERE firebase_uid = $2",
                 practice_id,
@@ -186,12 +280,10 @@ async def register_user(
                 clinician_name=body.display_name,
                 practice_role="owner",
                 status="active",
-                joined_at="now()",
+                joined_at=datetime.now(timezone.utc),
             )
             practice_role = "owner"
 
-            # Link user to practice
-            from db import get_pool
             pool = await get_pool()
             await pool.execute(
                 "UPDATE users SET practice_id = $1::uuid WHERE firebase_uid = $2",
@@ -204,6 +296,52 @@ async def register_user(
                 user["uid"], practice_id,
             )
 
+    elif role == "client":
+        # Determine which clinician to link this client to
+        client_invite = None
+
+        # Priority 1: invite token
+        if body.invite_token:
+            client_invite = await get_client_invitation_by_token(body.invite_token)
+
+        # Priority 2: email-based invitation lookup
+        if not client_invite and email:
+            client_invite = await get_client_invitation_by_email(email)
+
+        if client_invite:
+            primary_clinician_uid = client_invite["clinician_firebase_uid"]
+            practice_id = client_invite["practice_id"]
+            await accept_client_invitation(client_invite["token"])
+        elif body.primary_clinician_id:
+            # Group practice picker — clinician chosen by client
+            primary_clinician_uid = body.primary_clinician_id
+            practice_id = practice_info.get("practice_id")
+        elif practice_info["initialized"] and practice_info.get("practice_type") == "solo":
+            # Solo practice — auto-link to owner
+            pool = await get_pool()
+            owner_row = await pool.fetchrow(
+                """
+                SELECT firebase_uid FROM clinicians
+                WHERE practice_id = $1::uuid AND practice_role = 'owner' AND status = 'active'
+                LIMIT 1
+                """,
+                practice_info["practice_id"],
+            )
+            if owner_row:
+                primary_clinician_uid = owner_row["firebase_uid"]
+            practice_id = practice_info.get("practice_id")
+        else:
+            # Group practice, no invite, no clinician chosen
+            practice_id = practice_info.get("practice_id")
+
+        # Create/update client record with primary clinician linkage
+        await upsert_client(
+            firebase_uid=user["uid"],
+            email=email,
+            full_name=body.display_name,
+            primary_clinician_id=primary_clinician_uid,
+        )
+
     await log_audit_event(
         user_id=user["uid"],
         action="registered",
@@ -212,13 +350,14 @@ async def register_user(
         ip_address=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent"),
         metadata={
-            "role": body.role,
+            "role": role,
             "practice_id": practice_id,
             "practice_role": practice_role,
+            "primary_clinician_uid": primary_clinician_uid,
         },
     )
 
-    result = {"user_id": user_id, "role": body.role}
+    result = {"user_id": user_id, "role": role}
     if practice_id:
         result["practice_id"] = practice_id
         result["practice_role"] = practice_role
@@ -312,6 +451,7 @@ async def switch_role(
             name=display_name or "My Practice",
             practice_type="solo",
         )
+        from datetime import datetime, timezone
         await create_clinician(
             practice_id=practice_id,
             firebase_uid=user["uid"],
@@ -319,7 +459,7 @@ async def switch_role(
             clinician_name=display_name,
             practice_role="owner",
             status="active",
-            joined_at="now()",
+            joined_at=datetime.now(timezone.utc),
         )
         practice_role = "owner"
 
@@ -513,7 +653,7 @@ async def invite_team_member(
     practice_name = practice["name"] if practice else "the practice"
     try:
         send_email(
-            to_email=body.email,
+            to=body.email,
             subject=f"You've been invited to join {practice_name} on Trellis",
             html_body=(
                 f"<p>Hi{' ' + body.clinician_name if body.clinician_name else ''},</p>"

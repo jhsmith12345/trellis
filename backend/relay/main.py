@@ -119,14 +119,27 @@ async def websocket_session(ws: WebSocket):
             await ws.close(code=4003)
             return
 
-        # ── Resolve clinician for this client ──
+        # ── Resolve clinician and client insurance for this client ──
         # Look up the client's primary_clinician_id, fall back to practice owner
         resolved_clinician_uid = None
+        client_insurance = None
         try:
             client_record = await get_client(client_id)
-            if client_record and client_record.get("primary_clinician_id"):
-                resolved_clinician_uid = client_record["primary_clinician_id"]
-                logger.info("Client assigned to clinician: %s", resolved_clinician_uid)
+            if client_record:
+                if client_record.get("primary_clinician_id"):
+                    resolved_clinician_uid = client_record["primary_clinician_id"]
+                    logger.info("Client assigned to clinician: %s", resolved_clinician_uid)
+                # Pull insurance data if the client uploaded their card
+                if client_record.get("payer_name") or client_record.get("insurance_data"):
+                    client_insurance = client_record.get("insurance_data") or {}
+                    # Top-level fields override JSONB extraction data
+                    if client_record.get("payer_name"):
+                        client_insurance["payer_name"] = client_record["payer_name"]
+                    if client_record.get("member_id"):
+                        client_insurance["member_id"] = client_record["member_id"]
+                    if client_record.get("group_number"):
+                        client_insurance["group_number"] = client_record["group_number"]
+                    logger.info("Loaded client insurance: payer=%s", client_insurance.get("payer_name"))
         except Exception as e:
             logger.warning("Failed to look up client record: %s", e)
 
@@ -181,7 +194,10 @@ async def websocket_session(ws: WebSocket):
 
         # ── Voice session loop (handles mid-session compression) ──
         while True:
-            system_prompt = build_system_prompt(context, practice_profile)
+            system_prompt = build_system_prompt(
+                context, practice_profile, client_insurance,
+                client_email=session_context.get("client_email"),
+            )
 
             logger.info("Starting Gemini Live connection (prompt: %d chars)", len(system_prompt))
             session_active = [True]

@@ -65,7 +65,8 @@ async def extract_insurance_card(
     Returns:
         Dict with extracted insurance fields. Unreadable fields are null.
     """
-    client = genai.Client(vertexai=True, project=project_id, location=region)
+    # Gemini 3 Flash Preview is only available on the global endpoint
+    client = genai.Client(vertexai=True, project=project_id, location="global")
 
     parts: list[types.Part] = [
         types.Part.from_text(text="Front of insurance card:"),

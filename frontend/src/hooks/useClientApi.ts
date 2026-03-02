@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { useAuth } from "./useAuth";
+import { API_BASE } from "../lib/api-config";
 import type { ClientProfile, InsuranceExtraction } from "../types";
 
 async function api<T>(
@@ -7,7 +8,7 @@ async function api<T>(
   token: string,
   options?: RequestInit,
 ): Promise<T> {
-  const res = await fetch(path, {
+  const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
       Authorization: `Bearer ${token}`,

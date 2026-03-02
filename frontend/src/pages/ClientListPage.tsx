@@ -34,6 +34,11 @@ export default function ClientListPage() {
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [clinicianFilter, setClinicianFilter] = useState("all");
+  const [showInvite, setShowInvite] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteName, setInviteName] = useState("");
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [inviteMsg, setInviteMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const isGroup = practiceType === "group";
 
   useEffect(() => {
@@ -70,6 +75,26 @@ export default function ClientListPage() {
     );
   });
 
+  async function handleInvite(e: React.FormEvent) {
+    e.preventDefault();
+    if (!inviteEmail) return;
+    setInviteLoading(true);
+    setInviteMsg(null);
+    try {
+      await api.post("/api/clients/invite", {
+        email: inviteEmail,
+        client_name: inviteName || undefined,
+      });
+      setInviteMsg({ type: "success", text: `Invitation sent to ${inviteEmail}` });
+      setInviteEmail("");
+      setInviteName("");
+    } catch (err: any) {
+      setInviteMsg({ type: "error", text: err.message || "Failed to send invitation" });
+    } finally {
+      setInviteLoading(false);
+    }
+  }
+
   return (
     <div className="px-8 py-8 max-w-5xl">
       <div className="flex items-center justify-between mb-6">
@@ -79,7 +104,65 @@ export default function ClientListPage() {
             {loading ? "" : `${clients.length} client${clients.length !== 1 ? "s" : ""}`}
           </p>
         </div>
+        <button
+          onClick={() => { setShowInvite(!showInvite); setInviteMsg(null); }}
+          className="px-4 py-2 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700 transition-colors flex items-center gap-2"
+        >
+          <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+            <path d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" />
+          </svg>
+          Invite Client
+        </button>
       </div>
+
+      {/* Invite client form */}
+      {showInvite && (
+        <div className="bg-white rounded-xl border border-warm-100 shadow-sm p-5 mb-6">
+          <form onSubmit={handleInvite} className="flex items-end gap-3 flex-wrap">
+            <div className="flex-1 min-w-[200px]">
+              <label className="block text-xs font-medium text-warm-500 mb-1">
+                Email <span className="text-red-400">*</span>
+              </label>
+              <input
+                type="email"
+                required
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                placeholder="client@example.com"
+                className="w-full px-3 py-2 rounded-lg border border-warm-200 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none transition-all text-warm-800 text-sm"
+              />
+            </div>
+            <div className="min-w-[160px]">
+              <label className="block text-xs font-medium text-warm-500 mb-1">
+                Name (optional)
+              </label>
+              <input
+                type="text"
+                value={inviteName}
+                onChange={(e) => setInviteName(e.target.value)}
+                placeholder="Client name"
+                className="w-full px-3 py-2 rounded-lg border border-warm-200 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none transition-all text-warm-800 text-sm"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={inviteLoading}
+              className="px-4 py-2 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700 transition-colors disabled:opacity-50"
+            >
+              {inviteLoading ? "Sending..." : "Send Invite"}
+            </button>
+          </form>
+          {inviteMsg && (
+            <p className={`mt-3 text-sm px-3 py-2 rounded-lg ${
+              inviteMsg.type === "success"
+                ? "bg-teal-50 text-teal-700"
+                : "bg-red-50 text-red-700"
+            }`}>
+              {inviteMsg.text}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Search + Clinician Filter */}
       <div className="mb-6 flex items-center gap-4 flex-wrap">

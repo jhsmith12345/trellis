@@ -19,7 +19,8 @@ import logging
 import os
 import sys
 import uuid
-from datetime import datetime, timedelta, time as dt_time
+from datetime import datetime, timedelta, time as dt_time, timezone
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Query, Header
 from pydantic import BaseModel
@@ -188,18 +189,31 @@ async def get_slots(
 ):
     """Compute available 30-min slots for a clinician in a date range.
 
+    Availability windows are in the practice's local timezone.
+    Returned slot times include timezone offset for correct display.
     Released appointments are excluded from booked slots, so their times
     become available again automatically.
     """
     availability = await get_clinician_availability(clinician_id)
     booked = await get_booked_slots(clinician_id, start, end)
 
-    # Build set of booked datetimes
+    # Determine practice timezone
+    profile = await get_practice_profile(clinician_id)
+    tz_name = (profile or {}).get("timezone", "America/Chicago")
+    try:
+        tz = ZoneInfo(tz_name)
+    except Exception:
+        tz = ZoneInfo("America/Chicago")
+
+    # Build set of booked datetimes (as UTC for comparison)
     booked_set = set()
     for b in booked:
         slot_start = datetime.fromisoformat(b["start"])
+        if slot_start.tzinfo is None:
+            slot_start = slot_start.replace(tzinfo=timezone.utc)
+        slot_start_utc = slot_start.astimezone(timezone.utc)
         for i in range(0, b["duration_minutes"], 30):
-            booked_set.add(slot_start + timedelta(minutes=i))
+            booked_set.add(slot_start_utc + timedelta(minutes=i))
 
     # Build availability lookup: day_of_week -> list of (start, end)
     avail_by_day: dict[int, list[tuple[dt_time, dt_time]]] = {}
@@ -209,12 +223,23 @@ async def get_slots(
         et = dt_time.fromisoformat(w["end_time"])
         avail_by_day.setdefault(dow, []).append((st, et))
 
+    # Parse request range (treat as UTC if no tzinfo)
     start_dt = datetime.fromisoformat(start)
     end_dt = datetime.fromisoformat(end)
+    if start_dt.tzinfo is None:
+        start_dt = start_dt.replace(tzinfo=timezone.utc)
+    if end_dt.tzinfo is None:
+        end_dt = end_dt.replace(tzinfo=timezone.utc)
+
+    now_utc = datetime.now(timezone.utc)
     slots = []
 
-    current = start_dt.replace(hour=0, minute=0, second=0, microsecond=0)
-    while current < end_dt:
+    # Iterate over days in the practice's local timezone
+    local_start = start_dt.astimezone(tz).replace(hour=0, minute=0, second=0, microsecond=0)
+    local_end = end_dt.astimezone(tz)
+    current = local_start
+
+    while current.date() <= local_end.date():
         dow = current.weekday()
         # Python weekday: Mon=0. DB uses Sun=0. Convert.
         db_dow = (dow + 1) % 7
@@ -222,7 +247,8 @@ async def get_slots(
             slot = current.replace(hour=window_start.hour, minute=window_start.minute)
             window_end_dt = current.replace(hour=window_end.hour, minute=window_end.minute)
             while slot + timedelta(minutes=30) <= window_end_dt:
-                if slot >= start_dt and slot not in booked_set:
+                slot_utc = slot.astimezone(timezone.utc)
+                if slot_utc > now_utc and slot_utc not in booked_set:
                     slots.append({
                         "start": slot.isoformat(),
                         "end": (slot + timedelta(minutes=30)).isoformat(),

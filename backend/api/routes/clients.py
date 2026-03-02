@@ -16,6 +16,7 @@ Client endpoints scope queries to the authenticated user's firebase_uid.
 import base64
 import json
 import logging
+import os
 import sys
 from datetime import datetime, timezone
 
@@ -60,6 +61,13 @@ from db import (
 from vision import extract_insurance_card
 from gcal import delete_calendar_event
 from discharge_generator import generate_discharge_summary
+from db import (
+    create_client_invitation,
+    get_client_invitation_by_email,
+    get_practice,
+    get_clinician,
+)
+from mailer import send_email
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +116,86 @@ class InsuranceSave(BaseModel):
     payer_phone: str | None = None
     effective_date: str | None = None
     copay_info: str | None = None
+
+
+class ClientInviteRequest(BaseModel):
+    email: str
+    client_name: str | None = None
+
+
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+
+
+# ---------------------------------------------------------------------------
+# Client invitation
+# ---------------------------------------------------------------------------
+
+@router.post("/clients/invite")
+async def invite_client(
+    body: ClientInviteRequest,
+    request: Request,
+    user: dict = Depends(require_practice_member()),
+):
+    """Send an invitation email to a client. Any practice clinician can invite.
+
+    Generates a unique token link that pre-links the client to the inviting
+    clinician upon registration.
+    """
+    import secrets
+
+    # Check for existing pending invitation
+    existing = await get_client_invitation_by_email(body.email)
+    if existing:
+        raise HTTPException(400, "A pending invitation already exists for this email")
+
+    clinician = await get_clinician(user["uid"])
+    if not clinician:
+        raise HTTPException(400, "Clinician record not found")
+
+    practice_id = clinician["practice_id"]
+    token = secrets.token_urlsafe(32)
+
+    invitation_id = await create_client_invitation(
+        practice_id=practice_id,
+        clinician_uid=user["uid"],
+        email=body.email,
+        token=token,
+    )
+
+    # Send invitation email
+    practice = await get_practice(practice_id)
+    practice_name = practice["name"] if practice else "the practice"
+    clinician_name = clinician.get("clinician_name") or "Your clinician"
+    invite_link = f"{FRONTEND_URL}/?invite={token}"
+
+    try:
+        send_email(
+            to=body.email,
+            subject=f"{clinician_name} has invited you to {practice_name}",
+            html_body=(
+                f"<p>Hi{' ' + body.client_name if body.client_name else ''},</p>"
+                f"<p><b>{clinician_name}</b> has invited you to join "
+                f"<b>{practice_name}</b> on Trellis.</p>"
+                f"<p>Click the link below to get started:</p>"
+                f'<p><a href="{invite_link}">{invite_link}</a></p>'
+                f"<p>This invitation expires in 30 days.</p>"
+                f"<p>— The Trellis Team</p>"
+            ),
+        )
+    except Exception as e:
+        logger.error("Failed to send client invitation email to %s: %s", body.email, e)
+
+    await log_audit_event(
+        user_id=user["uid"],
+        action="invited_client",
+        resource_type="client_invitation",
+        resource_id=invitation_id,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        metadata={"email": body.email},
+    )
+
+    return {"status": "invited", "invitation_id": invitation_id}
 
 
 # ---------------------------------------------------------------------------

@@ -9,11 +9,12 @@ import { Button } from "./Button";
 interface AuthModalProps {
   mode: "client" | "clinician";
   onClose: () => void;
+  prefillEmail?: string;
 }
 
-export function AuthModal({ mode, onClose }: AuthModalProps) {
+export function AuthModal({ mode, onClose, prefillEmail }: AuthModalProps) {
   const [isSignUp, setIsSignUp] = useState(mode === "client");
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(prefillEmail || "");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
