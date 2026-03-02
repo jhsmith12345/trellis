@@ -43,13 +43,18 @@ export function AvailabilityEditor({
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  // Drag state
+  // Drag state — all refs so handlers never go stale
   const dragging = useRef(false);
-  const paintValue = useRef(true); // true = paint ON, false = paint OFF
+  const paintValue = useRef(true);
   const lastCell = useRef<string | null>(null);
+  const gridRef = useRef(grid);
+  gridRef.current = grid; // always points to latest grid
 
-  // Initialize grid from windows
+  // Only seed the grid once when initial data arrives (not on every parent re-render)
+  const initialized = useRef(false);
   useEffect(() => {
+    if (initialized.current || initialWindows.length === 0) return;
+    initialized.current = true;
     const g: Record<string, boolean> = {};
     for (const w of initialWindows) {
       const startIdx = SLOTS_PER_DAY.indexOf(w.start_time);
@@ -63,15 +68,16 @@ export function AvailabilityEditor({
     setGrid(g);
   }, [initialWindows]);
 
+  // Stable paint function — never changes identity
   const paintCell = useCallback((day: number, slot: number, value: boolean) => {
     const key = `${day}-${slot}`;
-    if (lastCell.current === key) return; // already painted this cell
+    if (lastCell.current === key) return;
     lastCell.current = key;
     setGrid((prev) => ({ ...prev, [key]: value }));
     setSaved(false);
   }, []);
 
-  // --- Mouse handlers ---
+  // --- Mouse handlers (all stable — read grid via ref) ---
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
       const cell = parseCellAttr(e.target as Element);
@@ -79,12 +85,11 @@ export function AvailabilityEditor({
       e.preventDefault();
       dragging.current = true;
       const key = `${cell.day}-${cell.slot}`;
-      // If cell is currently active, we're erasing; otherwise painting
-      paintValue.current = !grid[key];
+      paintValue.current = !gridRef.current[key];
       lastCell.current = null;
       paintCell(cell.day, cell.slot, paintValue.current);
     },
-    [grid, paintCell],
+    [paintCell],
   );
 
   const handleMouseMove = useCallback(
@@ -102,7 +107,7 @@ export function AvailabilityEditor({
     lastCell.current = null;
   }, []);
 
-  // --- Touch handlers ---
+  // --- Touch handlers (all stable — read grid via ref) ---
   const handleTouchStart = useCallback(
     (e: React.TouchEvent) => {
       const touch = e.touches[0];
@@ -110,14 +115,14 @@ export function AvailabilityEditor({
       const el = document.elementFromPoint(touch.clientX, touch.clientY);
       const cell = parseCellAttr(el);
       if (!cell) return;
-      e.preventDefault(); // prevent scrolling while dragging on grid
+      e.preventDefault();
       dragging.current = true;
       const key = `${cell.day}-${cell.slot}`;
-      paintValue.current = !grid[key];
+      paintValue.current = !gridRef.current[key];
       lastCell.current = null;
       paintCell(cell.day, cell.slot, paintValue.current);
     },
-    [grid, paintCell],
+    [paintCell],
   );
 
   const handleTouchMove = useCallback(
@@ -139,7 +144,6 @@ export function AvailabilityEditor({
     lastCell.current = null;
   }, []);
 
-  // End drag if mouse leaves the grid
   const handleMouseLeave = useCallback(() => {
     dragging.current = false;
     lastCell.current = null;
