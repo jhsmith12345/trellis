@@ -430,7 +430,7 @@ export default function ClientAppointmentsPage() {
                       </p>
                     </div>
                     <div className="flex gap-2 items-center">
-                      {a.meet_link && isInSessionWindow(a.scheduled_at, a.duration_minutes) && (
+                      {a.meet_link && isInSessionWindow(a.scheduled_at, a.duration_minutes) ? (
                         <a
                           href={a.meet_link}
                           target="_blank"
@@ -442,6 +442,14 @@ export default function ClientAppointmentsPage() {
                           </svg>
                           Join
                         </a>
+                      ) : a.meet_link ? (
+                        <span className="text-xs text-teal-600 font-medium px-2 py-1 bg-teal-50 rounded-lg">
+                          Meet link ready
+                        </span>
+                      ) : (
+                        <span className="text-xs text-warm-400 px-2 py-1">
+                          No Meet link
+                        </span>
                       )}
                       <button
                         onClick={() => handleCancel(a.id)}
