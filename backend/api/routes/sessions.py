@@ -139,7 +139,7 @@ async def transcribe_recording(
     recognition_config = cloud_speech.RecognitionConfig(
         auto_decoding_config=cloud_speech.AutoDetectDecodingConfig(),
         language_codes=["en-US"],
-        model="chirp_2",
+        model="chirp",
         features=cloud_speech.RecognitionFeatures(
             enable_word_time_offsets=True,
             diarization_config=cloud_speech.SpeakerDiarizationConfig(
