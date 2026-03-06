@@ -48,6 +48,7 @@ from db import (
     upsert_stored_signature,
     get_practice_profile,
     log_audit_event,
+    create_encounter,
 )
 from note_generator import generate_note, regenerate_note
 from note_pdf import generate_note_pdf
@@ -82,6 +83,12 @@ class SignNoteRequest(BaseModel):
 class AmendNoteRequest(BaseModel):
     content: dict  # Initial content for the amendment (copied from original)
     reason: str | None = None  # Optional reason for amendment
+
+
+class CreateManualNoteRequest(BaseModel):
+    client_id: str
+    format: str = "SOAP"  # 'SOAP', 'DAP', or 'narrative'
+    appointment_id: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -254,6 +261,79 @@ async def list_unsigned_notes(
     )
 
     return {"notes": notes, "count": len(notes)}
+
+
+@router.post("/notes/create-manual")
+async def create_manual_note(
+    body: CreateManualNoteRequest,
+    request: Request,
+    user: dict = Depends(require_practice_member()),
+):
+    """Create a blank clinical note for manual writing (no-recording fallback).
+
+    Creates a placeholder encounter (type=clinical, source=clinician) with an
+    empty transcript, then creates a blank note in the chosen format.
+    Useful when recording fails or the clinician wants to write from memory.
+    """
+    # Build blank content sections based on format
+    if body.format == "SOAP":
+        content = {
+            "subjective": "",
+            "objective": "",
+            "assessment": "",
+            "plan": "",
+        }
+    elif body.format == "DAP":
+        content = {
+            "data": "",
+            "assessment": "",
+            "plan": "",
+        }
+    else:
+        content = {"narrative": ""}
+
+    encounter_id = await create_encounter(
+        client_id=body.client_id,
+        encounter_type="clinical",
+        source="clinician",
+        clinician_id=user["uid"],
+        transcript="",
+        data={"appointment_id": body.appointment_id, "manual": True} if body.appointment_id else {"manual": True},
+        status="complete",
+    )
+
+    note_id = await _create_clinical_note(
+        encounter_id=encounter_id,
+        note_format=body.format,
+        content=content,
+        clinician_id=user["uid"],
+    )
+
+    # Link encounter to appointment if provided
+    if body.appointment_id:
+        pool = await get_pool()
+        await pool.execute(
+            "UPDATE appointments SET encounter_id = $1::uuid WHERE id = $2::uuid",
+            encounter_id,
+            body.appointment_id,
+        )
+
+    await log_audit_event(
+        user_id=user["uid"],
+        action="manual_note_created",
+        resource_type="clinical_note",
+        resource_id=note_id,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+        metadata={
+            "encounter_id": encounter_id,
+            "client_id": body.client_id,
+            "format": body.format,
+            "appointment_id": body.appointment_id,
+        },
+    )
+
+    return {"note_id": note_id, "encounter_id": encounter_id}
 
 
 @router.post("/notes/generate")

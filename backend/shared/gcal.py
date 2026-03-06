@@ -188,6 +188,34 @@ def get_calendar_event(event_id: str) -> dict | None:
         return None
 
 
+def strip_conference_data(event_id: str) -> bool:
+    """Remove conferenceData from a Calendar event so the Meet link goes dead.
+
+    Used after session completion or no-show to prevent clients from
+    rejoining old Meet links.
+
+    Returns True if stripped successfully, False otherwise.
+    """
+    service = _get_calendar_service()
+    try:
+        event = service.events().get(calendarId="primary", eventId=event_id).execute()
+        if "conferenceData" not in event:
+            logger.info("Event %s has no conferenceData to strip", event_id)
+            return True
+        del event["conferenceData"]
+        service.events().update(
+            calendarId="primary",
+            eventId=event_id,
+            body=event,
+            conferenceDataVersion=1,
+        ).execute()
+        logger.info("Stripped conferenceData from event %s", event_id)
+        return True
+    except Exception as e:
+        logger.error("Failed to strip conferenceData from event %s: %s", event_id, e)
+        return False
+
+
 def extract_meet_code(meet_link: str) -> str | None:
     """Extract the meeting code from a Google Meet link.
 
@@ -312,39 +340,16 @@ def delete_drive_file(file_id: str) -> bool:
         return False
 
 
-def get_meet_recording_for_event(
+def _resolve_meet_code(
     calendar_event_id: str,
     meet_link: str | None = None,
-    search_minutes: int = 180,
-) -> dict | None:
-    """Find a recording that matches a specific Calendar event.
-
-    Matching strategy:
-    1. Search recent recordings in Drive
-    2. Match by meeting code in the recording filename
-       (Meet recordings are named like "Meeting Recording - <date>.mp4"
-        and are placed in "Meet Recordings" folder)
-    3. If meet_link is provided, match by the meeting code in the link
-
-    For a more robust match, we check the Calendar event to get the
-    Meet conference details, then look for recordings whose name or
-    parent folder matches the meeting code.
-
-    Args:
-        calendar_event_id: Google Calendar event ID
-        meet_link: Optional Meet link for code-based matching
-        search_minutes: How far back to search for recordings
-
-    Returns:
-        Drive file resource dict if found, None otherwise.
-    """
-    # Get the calendar event to extract meeting code
+) -> tuple[str | None, dict | None]:
+    """Extract the Meet code for an event, returning (meet_code, event_dict)."""
     event = get_calendar_event(calendar_event_id)
     if not event:
         logger.warning("Calendar event %s not found for recording match", calendar_event_id)
-        return None
+        return None, None
 
-    # Extract meet code from event conference data
     meet_code = None
     conference_data = event.get("conferenceData", {})
     for ep in conference_data.get("entryPoints", []):
@@ -352,47 +357,91 @@ def get_meet_recording_for_event(
             meet_code = extract_meet_code(ep.get("uri", ""))
             break
 
-    # Fallback to the meet_link parameter
     if not meet_code and meet_link:
         meet_code = extract_meet_code(meet_link)
 
+    return meet_code, event
+
+
+def _match_recordings_by_meet_code(
+    recordings: list[dict],
+    meet_code: str,
+    event_summary: str = "",
+) -> list[dict]:
+    """Filter a list of Drive recordings to those matching a Meet code or event summary."""
+    matched = []
+    code_normalized = meet_code.replace("-", "")
+
+    for recording in recordings:
+        name = recording.get("name", "").lower()
+        if code_normalized in name.replace("-", "").replace(" ", ""):
+            matched.append(recording)
+
+    # Fallback: match by event summary if no code matches found
+    if not matched and event_summary:
+        summary_lower = event_summary.lower()[:30]
+        for recording in recordings:
+            name = recording.get("name", "").lower()
+            if summary_lower in name:
+                matched.append(recording)
+
+    return matched
+
+
+def get_all_recordings_for_event(
+    calendar_event_id: str,
+    meet_link: str | None = None,
+    search_minutes: int = 360,
+) -> list[dict]:
+    """Find ALL recordings matching a Calendar event's Meet code.
+
+    Returns every recording in Drive whose filename matches the Meet code,
+    sorted by creation time. This captures disconnection/rejoin scenarios
+    where a single session produces multiple recording fragments.
+
+    Args:
+        calendar_event_id: Google Calendar event ID
+        meet_link: Optional Meet link for code-based matching
+        search_minutes: How far back to search for recordings in Drive
+
+    Returns:
+        List of Drive file resource dicts, sorted by createdTime ascending.
+        Empty list if no matches found.
+    """
+    meet_code, event = _resolve_meet_code(calendar_event_id, meet_link)
     if not meet_code:
         logger.warning("No Meet code found for event %s", calendar_event_id)
-        return None
+        return []
 
-    # Search recent recordings and match by meeting code
     recordings = list_recent_recordings(
-        max_results=50,
+        max_results=100,
         since_minutes=search_minutes,
     )
 
-    # Meet recordings typically have the meeting code in the file name
-    # or are in a folder named with the meeting code.
-    # The filename format is usually: "<meeting title> (<date>).mp4"
-    # We also check by creation time proximity to the event end time.
-    for recording in recordings:
-        name = recording.get("name", "").lower()
-        # Check if the recording name contains the meeting code
-        if meet_code.replace("-", "") in name.replace("-", "").replace(" ", ""):
-            logger.info(
-                "Matched recording %s ('%s') to event %s via meeting code",
-                recording["id"], recording["name"], calendar_event_id,
-            )
-            return recording
+    event_summary = (event or {}).get("summary", "")
+    matched = _match_recordings_by_meet_code(recordings, meet_code, event_summary)
 
-    # If no name match, try matching by event summary in the recording name
-    event_summary = event.get("summary", "")
-    if event_summary:
-        summary_lower = event_summary.lower()
-        for recording in recordings:
-            name = recording.get("name", "").lower()
-            # Meet recordings often include the meeting title
-            if summary_lower[:30].lower() in name:
-                logger.info(
-                    "Matched recording %s ('%s') to event %s via event summary",
-                    recording["id"], recording["name"], calendar_event_id,
-                )
-                return recording
+    # Sort by creation time ascending so concatenation is in order
+    matched.sort(key=lambda r: r.get("createdTime", ""))
 
-    logger.info("No recording match found for event %s (meet code: %s)", calendar_event_id, meet_code)
-    return None
+    logger.info(
+        "Found %d recording(s) for event %s (meet code: %s)",
+        len(matched), calendar_event_id, meet_code,
+    )
+    return matched
+
+
+def get_meet_recording_for_event(
+    calendar_event_id: str,
+    meet_link: str | None = None,
+    search_minutes: int = 180,
+) -> dict | None:
+    """Find a single recording matching a Calendar event (legacy helper).
+
+    For new code, prefer get_all_recordings_for_event() which returns all
+    fragments for clustering. This returns only the first match.
+    """
+    recordings = get_all_recordings_for_event(
+        calendar_event_id, meet_link, search_minutes,
+    )
+    return recordings[0] if recordings else None

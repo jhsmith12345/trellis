@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import type { RecurringGroup, GroupEnrollment, GroupSession } from "../../types";
+import { useSessionWindow } from "../../hooks/useSessionWindow";
 import { Button } from "../Button";
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -437,6 +438,7 @@ function SessionRow({
   const [expanded, setExpanded] = useState(false);
   const [localAttendance, setLocalAttendance] = useState(session.attendance);
   const [saving, setSaving] = useState(false);
+  const joinable = useSessionWindow(session.scheduled_at, session.duration_minutes);
 
   const dt = new Date(session.scheduled_at);
 
@@ -485,7 +487,7 @@ function SessionRow({
             {session.status}
           </span>
         </div>
-        {session.meet_link && (
+        {session.meet_link && joinable && (
           <a
             href={session.meet_link}
             target="_blank"

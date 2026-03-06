@@ -2271,15 +2271,19 @@ async def get_unsigned_notes(clinician_uid: str | None = None, is_owner: bool = 
 # ---------------------------------------------------------------------------
 
 async def get_completed_appointments_needing_recording(
-    lookback_hours: int = 6,
+    lookback_hours: int = 12,
+    grace_minutes: int = 60,
 ) -> list[dict]:
     """Find completed or recently-past appointments that need recording processing.
 
     Returns appointments where:
-    - Status is 'completed' or was scheduled and end time has passed
+    - Status is 'completed' or was scheduled and end time + grace period has passed
     - recording_status is NULL (never processed) or 'pending'
     - Has a calendar_event_id (so we can look up the recording)
     - Was scheduled within the last `lookback_hours`
+
+    The grace period (default 60 min) gives time for sessions that run over
+    and for Meet to finalize recordings in Drive before we start polling.
     """
     pool = await get_pool()
     rows = await pool.fetch(
@@ -2290,11 +2294,14 @@ async def get_completed_appointments_needing_recording(
           AND scheduled_at > now() - $1 * interval '1 hour'
           AND (
             status = 'completed'
-            OR (status = 'scheduled' AND scheduled_at + (duration_minutes || ' minutes')::interval < now())
+            OR (status = 'scheduled'
+                AND scheduled_at + (duration_minutes || ' minutes')::interval
+                    + $2 * interval '1 minute' < now())
           )
         ORDER BY scheduled_at DESC
         """,
         lookback_hours,
+        grace_minutes,
     )
     return [_appointment_to_dict(r) for r in rows]
 

@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../hooks/useAuth";
 import { useApi } from "../../hooks/useApi";
+import { useMinuteTick } from "../../hooks/useSessionWindow";
+import { isInSessionWindow } from "../../lib/sessionWindow";
 import type { Appointment } from "../../types";
 
 interface DocStatus {
@@ -59,6 +61,7 @@ export default function ClientDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [clientProfile, setClientProfile] = useState<ClientProfile | null>(null);
+  useMinuteTick();
 
   const displayName = user?.displayName?.split(" ")[0] || "there";
 
@@ -250,7 +253,7 @@ export default function ClientDashboardPage() {
                   {formatTime(nextAppt.scheduled_at)} -- {nextAppt.duration_minutes} min
                   {nextAppt.type === "assessment" ? " (Assessment)" : " (Individual Session)"}
                 </p>
-                {nextAppt.meet_link && (
+                {nextAppt.meet_link && isInSessionWindow(nextAppt.scheduled_at, nextAppt.duration_minutes) && (
                   <a
                     href={nextAppt.meet_link}
                     target="_blank"

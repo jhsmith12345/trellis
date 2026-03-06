@@ -53,7 +53,7 @@ from db import (
     get_appointments_with_unsigned_docs,
     get_practice_profile,
 )
-from gcal import create_calendar_event, update_calendar_event, delete_calendar_event
+from gcal import create_calendar_event, update_calendar_event, delete_calendar_event, strip_conference_data
 from mailer import send_email
 from routes.documents import auto_generate_consent_package
 
@@ -439,6 +439,12 @@ async def patch_appointment(
             delete_calendar_event(appt["calendar_event_id"])
         except Exception as e:
             logger.error("Failed to delete calendar event: %s", e)
+
+    if body.status == "completed" and appt.get("calendar_event_id"):
+        try:
+            strip_conference_data(appt["calendar_event_id"])
+        except Exception as e:
+            logger.error("Failed to strip conference data: %s", e)
 
     await update_appointment_status(
         appointment_id, body.status, body.cancelled_reason
@@ -1200,6 +1206,12 @@ async def cron_check_no_shows(
     for appt in past_due:
         await update_appointment_status(appt["id"], "no_show")
         no_show_count += 1
+
+        if appt.get("calendar_event_id"):
+            try:
+                strip_conference_data(appt["calendar_event_id"])
+            except Exception as e:
+                logger.error("Failed to strip conference data for no-show %s: %s", appt["id"], e)
 
         await log_audit_event(
             user_id=None,

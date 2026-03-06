@@ -1,3 +1,4 @@
+import { useSessionWindow } from "../../hooks/useSessionWindow";
 import type { Appointment } from "../../types";
 
 const typeBadge: Record<string, string> = {
@@ -23,6 +24,7 @@ export function AppointmentCard({
   showClient = true,
   onCancel,
 }: AppointmentCardProps) {
+  const joinable = useSessionWindow(a.scheduled_at, a.duration_minutes);
   const dt = new Date(a.scheduled_at);
   const time = dt.toLocaleTimeString("en-US", {
     hour: "numeric",
@@ -59,7 +61,7 @@ export function AppointmentCard({
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0">
-          {a.meet_link && a.status === "scheduled" && (
+          {a.meet_link && a.status === "scheduled" && joinable && (
             <a
               href={a.meet_link}
               target="_blank"

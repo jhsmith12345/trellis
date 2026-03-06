@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { useApi } from "../hooks/useApi";
+import { useMinuteTick } from "../hooks/useSessionWindow";
+import { isInSessionWindow } from "../lib/sessionWindow";
 import type { Appointment } from "../types";
 
 // ---------------------------------------------------------------------------
@@ -206,10 +208,12 @@ export default function ClientDetailPage() {
   const [treatmentPlan, setTreatmentPlan] = useState<TreatmentPlan | null>(null);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
+  useMinuteTick();
   const [generatingNoteFor, setGeneratingNoteFor] = useState<string | null>(null);
   const [generatingPlan, setGeneratingPlan] = useState(false);
   const [superbills, setSuperbills] = useState<SuperbillItem[]>([]);
   const [downloadingSuperbill, setDownloadingSuperbill] = useState<string | null>(null);
+  const [creatingManualNote, setCreatingManualNote] = useState<string | null>(null);
 
   // Discharge workflow state
   const [showDischargeModal, setShowDischargeModal] = useState(false);
@@ -359,6 +363,26 @@ export default function ClientDetailPage() {
       alert("Failed to download superbill PDF.");
     } finally {
       setDownloadingSuperbill(null);
+    }
+  }
+
+  async function handleCreateManualNote(appointmentId: string) {
+    if (!client) return;
+    setCreatingManualNote(appointmentId);
+    try {
+      const res = await api.post<{ note_id: string; encounter_id: string }>(
+        "/api/notes/create-manual",
+        {
+          client_id: client.firebase_uid,
+          format: "SOAP",
+          appointment_id: appointmentId,
+        },
+      );
+      navigate(`/notes/${res.note_id}`);
+    } catch (e: any) {
+      console.error("Failed to create manual note:", e);
+    } finally {
+      setCreatingManualNote(null);
     }
   }
 
@@ -971,7 +995,7 @@ export default function ClientDetailPage() {
                           </p>
                         </div>
                         <div className="flex items-center gap-2">
-                          {appt.meet_link && (
+                          {appt.meet_link && isInSessionWindow(appt.scheduled_at, appt.duration_minutes) && (
                             <a
                               href={appt.meet_link}
                               target="_blank"
@@ -1015,13 +1039,24 @@ export default function ClientDetailPage() {
                             {formatDateTime(appt.scheduled_at)}
                           </p>
                         </div>
-                        <span
-                          className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium capitalize ${
-                            APPT_STATUS_STYLES[appt.status] || ""
-                          }`}
-                        >
-                          {appt.status.replace("_", " ")}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          {appt.status === "completed" && !appt.encounter_id && (
+                            <button
+                              onClick={() => handleCreateManualNote(appt.id)}
+                              disabled={creatingManualNote === appt.id}
+                              className="px-2.5 py-1 text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 rounded-lg transition-colors disabled:opacity-50"
+                            >
+                              {creatingManualNote === appt.id ? "Creating…" : "Write Note"}
+                            </button>
+                          )}
+                          <span
+                            className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium capitalize ${
+                              APPT_STATUS_STYLES[appt.status] || ""
+                            }`}
+                          >
+                            {appt.status.replace("_", " ")}
+                          </span>
+                        </div>
                       </div>
                     ))}
                     {pastAppts.length > 10 && (

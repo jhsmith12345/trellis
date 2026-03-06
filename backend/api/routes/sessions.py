@@ -50,8 +50,10 @@ from db import (
 )
 from gcal import (
     get_meet_recording_for_event,
+    get_all_recordings_for_event,
     download_recording,
     delete_drive_file,
+    strip_conference_data,
 )
 
 logger = logging.getLogger(__name__)
@@ -396,6 +398,57 @@ def _build_diarized_transcript(words: list[dict]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Short-transcript validation via Gemini Flash
+# ---------------------------------------------------------------------------
+
+# Transcripts under this character count get LLM-validated to filter junk
+SHORT_TRANSCRIPT_THRESHOLD = 2000
+
+GEMINI_MODEL = os.getenv("GEMINI_NOTE_MODEL", "gemini-2.5-flash-preview-05-20")
+
+
+async def validate_short_transcript(transcript: str) -> str:
+    """Ask Gemini Flash whether a short transcript is a real clinical session.
+
+    Returns one of: "session", "not_session", "uncertain".
+    """
+    from google import genai
+    from google.genai.types import GenerateContentConfig
+
+    client = genai.Client(
+        vertexai=True,
+        project=GCP_PROJECT_ID,
+        location=GCP_REGION,
+    )
+
+    prompt = (
+        "You are triaging a short therapy session recording transcript. "
+        "Determine if this is an actual clinical therapy session or a "
+        "non-clinical interaction (tech test, scheduling call, brief check-in, accidental join).\n\n"
+        f"Transcript:\n{transcript[:3000]}\n\n"
+        "Respond with exactly one word: session | not_session | uncertain"
+    )
+
+    try:
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config=GenerateContentConfig(
+                temperature=0.0,
+                max_output_tokens=10,
+            ),
+        )
+        result = response.text.strip().lower()
+        if result in ("session", "not_session", "uncertain"):
+            return result
+        logger.warning("Unexpected LLM validation response: %s", result)
+        return "uncertain"
+    except Exception as e:
+        logger.error("LLM transcript validation failed: %s", e)
+        return "uncertain"
+
+
+# ---------------------------------------------------------------------------
 # Core processing pipeline
 # ---------------------------------------------------------------------------
 
@@ -403,19 +456,24 @@ async def process_single_appointment(
     appointment: dict,
     delete_after: bool = True,
 ) -> dict:
-    """Process a single appointment's recording through the full pipeline.
+    """Process a single appointment's recording(s) through the full pipeline.
+
+    Clusters all recordings matching the appointment's Meet code (handles
+    disconnection/rejoin producing multiple fragments), concatenates the
+    audio, transcribes, and validates short transcripts via LLM.
 
     Steps:
-    1. Find recording in Drive matching the Calendar event
-    2. Download the recording
+    1. Find ALL recordings in Drive matching the Meet code
+    2. Download and concatenate audio fragments
     3. Transcribe with speaker diarization
-    4. Store as encounter
-    5. Link to appointment
-    6. Optionally delete recording
+    4. If transcript < 2000 chars, LLM-validate (filter junk/test calls)
+    5. Store as encounter
+    6. Link to appointment
+    7. Optionally delete recordings
 
     Args:
         appointment: Appointment dict from db.
-        delete_after: Whether to delete the recording after transcription.
+        delete_after: Whether to delete the recording(s) after transcription.
 
     Returns:
         Dict with processing results.
@@ -437,46 +495,66 @@ async def process_single_appointment(
     await update_appointment_recording(appt_id, recording_status="processing")
 
     try:
-        # Step 2: Find recording in Drive
-        recording = get_meet_recording_for_event(
+        # Step 2: Find ALL recordings matching the Meet code
+        recordings = get_all_recordings_for_event(
             calendar_event_id=calendar_event_id,
             meet_link=meet_link,
             search_minutes=RECORDING_SEARCH_WINDOW,
         )
 
-        if not recording:
+        if not recordings:
             logger.info("No recording found for appointment %s (event %s)", appt_id, calendar_event_id)
             await update_appointment_recording(
                 appt_id,
-                recording_status="pending",  # Keep as pending — might appear later
+                recording_status="pending",
                 recording_error="Recording not found in Drive yet",
             )
             return {"status": "pending", "reason": "recording_not_found"}
 
-        file_id = recording["id"]
-        file_name = recording.get("name", "unknown")
+        file_ids = [r["id"] for r in recordings]
+        file_names = [r.get("name", "unknown") for r in recordings]
         logger.info(
-            "Found recording for appointment %s: %s (%s)",
-            appt_id, file_name, file_id,
+            "Found %d recording(s) for appointment %s: %s",
+            len(recordings), appt_id, file_names,
         )
 
-        # Store the file ID
-        await update_appointment_recording(appt_id, recording_file_id=file_id)
+        # Store the first file ID for backwards compatibility
+        await update_appointment_recording(appt_id, recording_file_id=file_ids[0])
 
-        # Step 3: Download the recording
-        download_result = download_recording(file_id)
-        if not download_result:
-            raise RuntimeError(f"Failed to download recording {file_id}")
+        # Step 3: Download all fragments and concatenate
+        all_audio_chunks: list[bytes] = []
+        total_bytes = 0
+        mime_type = "video/mp4"
 
-        audio_bytes, mime_type = download_result
-        logger.info("Downloaded recording: %d bytes, %s", len(audio_bytes), mime_type)
+        for rec in recordings:
+            download_result = download_recording(rec["id"])
+            if not download_result:
+                logger.warning("Failed to download fragment %s, skipping", rec["id"])
+                continue
+            chunk_bytes, chunk_mime = download_result
+            all_audio_chunks.append(chunk_bytes)
+            total_bytes += len(chunk_bytes)
+            mime_type = chunk_mime  # Use last mime type
+
+        if not all_audio_chunks:
+            raise RuntimeError("Failed to download any recording fragments")
+
+        # Concatenate audio fragments
+        if len(all_audio_chunks) == 1:
+            combined_audio = all_audio_chunks[0]
+        else:
+            combined_audio = b"".join(all_audio_chunks)
+            logger.info(
+                "Concatenated %d fragments (%d bytes total) for appointment %s",
+                len(all_audio_chunks), total_bytes, appt_id,
+            )
 
         # Step 4: Transcribe with diarization
         transcription = await transcribe_recording(
-            audio_bytes=audio_bytes,
+            audio_bytes=combined_audio,
             mime_type=mime_type,
             min_speaker_count=2,
-            max_speaker_count=2,  # clinician + client for individual sessions
+            max_speaker_count=2,
         )
 
         transcript_text = transcription.get("transcript", "")
@@ -490,49 +568,86 @@ async def process_single_appointment(
             transcription.get("duration_sec", 0),
         )
 
-        # Step 5: Store as encounter
+        # Step 5: LLM-validate short transcripts to filter junk
+        llm_validation = None
+        if len(transcript_text) < SHORT_TRANSCRIPT_THRESHOLD:
+            llm_validation = await validate_short_transcript(transcript_text)
+            logger.info(
+                "Short transcript validation for %s: %s (%d chars)",
+                appt_id, llm_validation, len(transcript_text),
+            )
+            if llm_validation == "not_session":
+                await update_appointment_recording(
+                    appt_id,
+                    recording_status="skipped",
+                    recording_error="Short recording classified as non-clinical by LLM",
+                )
+                # Still delete recordings to clean up
+                if delete_after:
+                    for fid in file_ids:
+                        delete_drive_file(fid)
+                return {
+                    "status": "skipped",
+                    "reason": "non_clinical_transcript",
+                    "appointment_id": appt_id,
+                    "llm_validation": llm_validation,
+                    "transcript_length": len(transcript_text),
+                }
+
+        # Step 6: Store as encounter
+        encounter_data = {
+            "appointment_id": appt_id,
+            "appointment_type": appointment.get("type"),
+            "recording_file_ids": file_ids,
+            "recording_file_names": file_names,
+            "recording_fragment_count": len(recordings),
+            "duration_sec": transcription.get("duration_sec", 0),
+            "speaker_count": transcription.get("speaker_count", 0),
+            "word_count": transcription.get("word_count", 0),
+            "transcription_source": "google_stt_v2_chirp",
+            "processed_at": datetime.utcnow().isoformat(),
+        }
+        if llm_validation:
+            encounter_data["llm_validation"] = llm_validation
+
         encounter_id = await create_encounter(
             client_id=appointment["client_id"],
             encounter_type="clinical",
             source="voice",
             clinician_id=appointment.get("clinician_id"),
             transcript=transcript_text,
-            data={
-                "appointment_id": appt_id,
-                "appointment_type": appointment.get("type"),
-                "recording_file_id": file_id,
-                "recording_file_name": file_name,
-                "duration_sec": transcription.get("duration_sec", 0),
-                "speaker_count": transcription.get("speaker_count", 0),
-                "word_count": transcription.get("word_count", 0),
-                "transcription_source": "google_stt_v2_chirp",
-                "processed_at": datetime.utcnow().isoformat(),
-            },
+            data=encounter_data,
             duration_sec=transcription.get("duration_sec"),
             status="complete",
         )
 
         logger.info("Created encounter %s for appointment %s", encounter_id, appt_id)
 
-        # Step 6: Link encounter to appointment and mark as completed
+        # Step 7: Link encounter to appointment and mark as completed
         await update_appointment_recording(
             appt_id,
             recording_status="completed",
             encounter_id=encounter_id,
         )
 
-        # Update appointment status to completed if not already
         if appointment.get("status") != "completed":
             await update_appointment_status(appt_id, "completed")
 
-        # Step 7: Optionally delete recording from Drive
-        recording_deleted = False
+        # Strip Meet link so old link goes dead
+        if calendar_event_id:
+            try:
+                strip_conference_data(calendar_event_id)
+            except Exception as e:
+                logger.error("Failed to strip conference data for %s: %s", appt_id, e)
+
+        # Step 8: Optionally delete recordings from Drive
+        recordings_deleted = 0
         if delete_after:
-            recording_deleted = delete_drive_file(file_id)
-            if recording_deleted:
-                logger.info("Deleted recording %s after transcription", file_id)
-            else:
-                logger.warning("Failed to delete recording %s", file_id)
+            for fid in file_ids:
+                if delete_drive_file(fid):
+                    recordings_deleted += 1
+                else:
+                    logger.warning("Failed to delete recording %s", fid)
 
         return {
             "status": "completed",
@@ -541,7 +656,9 @@ async def process_single_appointment(
             "duration_sec": transcription.get("duration_sec", 0),
             "word_count": transcription.get("word_count", 0),
             "speaker_count": transcription.get("speaker_count", 0),
-            "recording_deleted": recording_deleted,
+            "recording_fragment_count": len(recordings),
+            "recordings_deleted": recordings_deleted,
+            "llm_validation": llm_validation,
         }
 
     except Exception as e:
@@ -553,7 +670,7 @@ async def process_single_appointment(
         await update_appointment_recording(
             appt_id,
             recording_status="failed",
-            recording_error=error_msg[:500],  # Truncate long error messages
+            recording_error=error_msg[:500],
         )
         return {"status": "failed", "error": error_msg, "appointment_id": appt_id}
 

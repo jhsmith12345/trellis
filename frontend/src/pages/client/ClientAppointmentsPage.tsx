@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../../hooks/useAuth";
 import { useApi } from "../../hooks/useApi";
+import { useMinuteTick } from "../../hooks/useSessionWindow";
+import { isInSessionWindow } from "../../lib/sessionWindow";
 import type { Appointment, TimeSlot } from "../../types";
 
 interface ClientProfile {
@@ -93,6 +95,7 @@ export default function ClientAppointmentsPage() {
   const [reconfirmations, setReconfirmations] = useState<PendingReconfirmation[]>([]);
   const [loading, setLoading] = useState(true);
   const [practice, setPractice] = useState<PracticeProfile | null>(null);
+  useMinuteTick();
 
   // Booking state
   const [slots, setSlots] = useState<TimeSlot[]>([]);
@@ -427,7 +430,7 @@ export default function ClientAppointmentsPage() {
                       </p>
                     </div>
                     <div className="flex gap-2 items-center">
-                      {a.meet_link && (
+                      {a.meet_link && isInSessionWindow(a.scheduled_at, a.duration_minutes) && (
                         <a
                           href={a.meet_link}
                           target="_blank"

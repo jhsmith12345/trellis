@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useApi } from "../hooks/useApi";
+import { useMinuteTick } from "../hooks/useSessionWindow";
+import { isInSessionWindow } from "../lib/sessionWindow";
 import type { Appointment, PracticeProfile, Clinician } from "../types";
 
 interface UnsignedNote {
@@ -49,6 +51,7 @@ export default function DashboardPage() {
   const [clinicians, setClinicians] = useState<Clinician[]>([]);
   const [loading, setLoading] = useState(true);
   const isGroup = practiceType === "group";
+  useMinuteTick();
 
   const displayName = user?.displayName || user?.email || "Clinician";
 
@@ -188,7 +191,7 @@ export default function DashboardPage() {
                         {appt.type === "assessment" ? "Intake Assessment" : "Individual Session"}
                       </p>
                     </div>
-                    {appt.meet_link && (
+                    {appt.meet_link && isInSessionWindow(appt.scheduled_at, appt.duration_minutes) && (
                       <a
                         href={appt.meet_link}
                         target="_blank"
