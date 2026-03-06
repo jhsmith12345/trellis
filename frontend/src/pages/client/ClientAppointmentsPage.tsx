@@ -20,6 +20,7 @@ interface PracticeProfile {
   exists: boolean;
   clinician_uid?: string;
   clinician_name?: string;
+  clinician_email?: string;
   practice_name?: string;
   email?: string;
   default_session_duration?: number;
@@ -219,7 +220,7 @@ export default function ClientAppointmentsPage() {
         client_email: user.email || "",
         client_name: user.displayName || user.email || "",
         clinician_id: practice.clinician_uid,
-        clinician_email: practice.email || "",
+        clinician_email: practice.clinician_email || practice.email || "",
         type: bookingType,
         scheduled_at: selectedSlot.start,
         duration_minutes: practice.default_session_duration || 60,
