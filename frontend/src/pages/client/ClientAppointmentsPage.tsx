@@ -101,7 +101,7 @@ export default function ClientAppointmentsPage() {
   const [slots, setSlots] = useState<TimeSlot[]>([]);
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
   const [bookingType, setBookingType] = useState<"individual" | "assessment">("individual");
-  const [cadence, setCadence] = useState<"weekly" | "biweekly" | "monthly">("weekly");
+  const [cadence, setCadence] = useState<"once" | "weekly" | "biweekly" | "monthly">("once");
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [booking, setBooking] = useState(false);
   const [bookingSuccess, setBookingSuccess] = useState(false);
@@ -223,7 +223,7 @@ export default function ClientAppointmentsPage() {
         type: bookingType,
         scheduled_at: selectedSlot.start,
         duration_minutes: practice.default_session_duration || 60,
-        cadence: bookingType === "individual" ? cadence : "weekly",
+        ...(bookingType === "individual" && cadence !== "once" ? { cadence } : {}),
       });
       setBookingSuccess(true);
       setSelectedSlot(null);
@@ -522,7 +522,9 @@ export default function ClientAppointmentsPage() {
               <h3 className="text-xl font-semibold text-warm-800 mb-2">Appointment Booked</h3>
               <p className="text-warm-500 mb-1">
                 {bookingType === "individual"
-                  ? `${cadence === "weekly" ? "4 weekly" : cadence === "biweekly" ? "4 biweekly" : "4 monthly"} sessions have been scheduled.`
+                  ? cadence === "once"
+                    ? "Your session has been scheduled."
+                    : `${cadence === "weekly" ? "4 weekly" : cadence === "biweekly" ? "4 biweekly" : "4 monthly"} sessions have been scheduled.`
                   : "Your assessment has been scheduled."}
               </p>
               <p className="text-sm text-warm-400">Calendar invites have been sent.</p>
@@ -576,9 +578,10 @@ export default function ClientAppointmentsPage() {
                   <label className="block text-sm font-medium text-warm-700 mb-2">
                     Frequency
                   </label>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 flex-wrap">
                     {(
                       [
+                        { value: "once" as const, label: "Once" },
                         { value: "weekly" as const, label: "Weekly" },
                         { value: "biweekly" as const, label: "Every 2 Weeks" },
                         { value: "monthly" as const, label: "Monthly" },
@@ -670,7 +673,7 @@ export default function ClientAppointmentsPage() {
                 {bookingType === "individual" && (
                   <div className="flex justify-between text-sm">
                     <span className="text-warm-500">Frequency</span>
-                    <span className="font-medium text-warm-800 capitalize">{cadence}</span>
+                    <span className="font-medium text-warm-800 capitalize">{cadence === "once" ? "One-time" : cadence}</span>
                   </div>
                 )}
                 {practice?.clinician_name && (
@@ -679,7 +682,7 @@ export default function ClientAppointmentsPage() {
                     <span className="font-medium text-warm-800">{practice.clinician_name}</span>
                   </div>
                 )}
-                {bookingType === "individual" && (
+                {bookingType === "individual" && cadence !== "once" && (
                   <div className="border-t border-warm-200 pt-3 mt-3">
                     <p className="text-sm text-teal-700 font-medium">
                       This will create 4 {cadence} sessions at this time.
