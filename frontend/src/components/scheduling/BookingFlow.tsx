@@ -27,7 +27,7 @@ interface BookingFlowProps {
     type: string;
     scheduled_at: string;
     duration_minutes: number;
-    cadence?: string;
+    cadence?: "weekly" | "biweekly" | "monthly";
   }) => Promise<void>;
   clientId: string;
   clientEmail: string;
@@ -54,7 +54,7 @@ export function BookingFlow({
   const [clinicianId, setClinicianId] = useState("");
   const [clinicianEmail, setClinicianEmail] = useState("");
   const [apptType, setApptType] = useState<ApptType>("assessment");
-  const [cadence, setCadence] = useState("");
+  const [cadence, setCadence] = useState<"" | "weekly" | "biweekly" | "monthly">("");
   const [slots, setSlots] = useState<TimeSlot[]>([]);
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
   const [loading, setLoading] = useState(false);
@@ -226,7 +226,7 @@ export function BookingFlow({
                 </label>
                 <select
                   value={cadence}
-                  onChange={(e) => setCadence(e.target.value)}
+                  onChange={(e) => setCadence(e.target.value as "" | "weekly" | "biweekly" | "monthly")}
                   className="w-full px-4 py-2.5 border border-warm-300 rounded-lg text-warm-800 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent bg-white"
                 >
                   {CADENCE_OPTIONS.map((c) => (
