@@ -138,7 +138,7 @@ export default function LandingPage() {
                 onClick={() => openAuth("client", inviteInfo.email)}
                 className="group relative px-8 py-4 bg-amber-400 text-warm-900 font-semibold text-lg rounded-xl hover:bg-amber-300 transition-all duration-200 hover:shadow-lg hover:shadow-amber-400/25 hover:-translate-y-0.5"
               >
-                Get Started
+                Client Portal
                 <span className="inline-block ml-2 transition-transform group-hover:translate-x-1">
                   &rarr;
                 </span>
@@ -164,7 +164,7 @@ export default function LandingPage() {
                   onClick={() => openAuth("client")}
                   className="group relative px-8 py-4 bg-amber-400 text-warm-900 font-semibold text-lg rounded-xl hover:bg-amber-300 transition-all duration-200 hover:shadow-lg hover:shadow-amber-400/25 hover:-translate-y-0.5"
                 >
-                  Get Started
+                  Client Portal
                   <span className="inline-block ml-2 transition-transform group-hover:translate-x-1">
                     &rarr;
                   </span>
@@ -264,7 +264,7 @@ export default function LandingPage() {
               onClick={() => openAuth("client")}
               className="group px-10 py-4 bg-amber-400 text-warm-900 font-semibold text-lg rounded-xl hover:bg-amber-300 transition-all duration-200 hover:shadow-lg hover:shadow-amber-400/20 hover:-translate-y-0.5"
             >
-              Get Started Free
+              Client Portal
               <span className="inline-block ml-2 transition-transform group-hover:translate-x-1">
                 &rarr;
               </span>
