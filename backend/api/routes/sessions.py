@@ -136,36 +136,45 @@ async def transcribe_recording(
 
     # Build recognition config with diarization
     # The V2 API uses "recognizers" — we use inline config for simplicity
-    recognition_config = cloud_speech.RecognitionConfig(
-        auto_decoding_config=cloud_speech.AutoDetectDecodingConfig(),
-        language_codes=["en-US"],
-        model="chirp",
-        features=cloud_speech.RecognitionFeatures(
-            enable_word_time_offsets=True,
-            diarization_config=cloud_speech.SpeakerDiarizationConfig(
-                min_speaker_count=min_speaker_count,
-                max_speaker_count=max_speaker_count,
-            ),
-            enable_automatic_punctuation=True,
-        ),
-    )
-
-    recognizer_name = f"projects/{GCP_PROJECT_ID}/locations/{GCP_REGION}/recognizers/_"
-
-    # For files larger than ~10MB, we should use long-running recognition
-    # (batch recognize). For MVP, use inline recognition for simplicity
-    # with a size check to route to batch for large files.
     file_size_mb = len(audio_bytes) / (1024 * 1024)
     logger.info("Audio size: %.1f MB, transcribing...", file_size_mb)
 
+    recognizer_name = f"projects/{GCP_PROJECT_ID}/locations/{GCP_REGION}/recognizers/_"
+
     if file_size_mb > 10:
-        # Use batch (long-running) recognition for large files
+        # Batch recognize: use latest_long which supports diarization
+        recognition_config = cloud_speech.RecognitionConfig(
+            auto_decoding_config=cloud_speech.AutoDetectDecodingConfig(),
+            language_codes=["en-US"],
+            model="latest_long",
+            features=cloud_speech.RecognitionFeatures(
+                enable_word_time_offsets=True,
+                diarization_config=cloud_speech.SpeakerDiarizationConfig(
+                    min_speaker_count=min_speaker_count,
+                    max_speaker_count=max_speaker_count,
+                ),
+                enable_automatic_punctuation=True,
+            ),
+        )
         return await _transcribe_batch(
             client, recognizer_name, recognition_config,
             audio_bytes, mime_type,
         )
     else:
-        # Use inline recognition for smaller files
+        # Inline recognize: use chirp for best quality on short files
+        recognition_config = cloud_speech.RecognitionConfig(
+            auto_decoding_config=cloud_speech.AutoDetectDecodingConfig(),
+            language_codes=["en-US"],
+            model="chirp",
+            features=cloud_speech.RecognitionFeatures(
+                enable_word_time_offsets=True,
+                diarization_config=cloud_speech.SpeakerDiarizationConfig(
+                    min_speaker_count=min_speaker_count,
+                    max_speaker_count=max_speaker_count,
+                ),
+                enable_automatic_punctuation=True,
+            ),
+        )
         return await _transcribe_inline(
             client, recognizer_name, recognition_config,
             audio_bytes, mime_type,
