@@ -142,17 +142,14 @@ async def transcribe_recording(
     recognizer_name = f"projects/{GCP_PROJECT_ID}/locations/{GCP_REGION}/recognizers/_"
 
     if file_size_mb > 10:
-        # Batch recognize: use latest_long which supports diarization
+        # Batch recognize: diarization not supported in single-region batch,
+        # so we skip it here. Gemini can infer speaker turns from context.
         recognition_config = cloud_speech.RecognitionConfig(
             auto_decoding_config=cloud_speech.AutoDetectDecodingConfig(),
             language_codes=["en-US"],
             model="latest_long",
             features=cloud_speech.RecognitionFeatures(
                 enable_word_time_offsets=True,
-                diarization_config=cloud_speech.SpeakerDiarizationConfig(
-                    min_speaker_count=min_speaker_count,
-                    max_speaker_count=max_speaker_count,
-                ),
                 enable_automatic_punctuation=True,
             ),
         )
