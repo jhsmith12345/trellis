@@ -562,7 +562,7 @@ export default function ClientAppointmentsPage() {
                   {(
                     [
                       { value: "assessment" as const, label: "Assessment", desc: "Initial evaluation" },
-                      { value: "individual" as const, label: "Individual", desc: "Recurring sessions" },
+                      { value: "individual" as const, label: "Individual", desc: "Single or recurring sessions" },
                     ] as const
                   ).map((opt) => (
                     <button
