@@ -79,8 +79,12 @@ def _check_calendar() -> dict:
     try:
         from gcal import _get_credentials
         from googleapiclient.discovery import build
+        import os
 
-        creds = _get_credentials()
+        sender = os.getenv("SENDER_EMAIL", "")
+        if not sender:
+            return {"status": "warning", "message": "SENDER_EMAIL not set — Calendar health check skipped"}
+        creds = _get_credentials(sender)
         service = build("calendar", "v3", credentials=creds, cache_discovery=False)
         # List calendars to verify access
         result = service.calendarList().list(maxResults=1).execute()
@@ -122,8 +126,12 @@ def _check_drive() -> dict:
     try:
         from gcal import _get_credentials
         from googleapiclient.discovery import build
+        import os
 
-        creds = _get_credentials()
+        sender = os.getenv("SENDER_EMAIL", "")
+        if not sender:
+            return {"status": "warning", "message": "SENDER_EMAIL not set — Drive health check skipped"}
+        creds = _get_credentials(sender)
         service = build("drive", "v3", credentials=creds, cache_discovery=False)
         # List files (limit 1) to verify access
         result = service.files().list(pageSize=1, fields="files(id,name)").execute()

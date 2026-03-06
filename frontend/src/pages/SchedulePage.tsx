@@ -11,7 +11,7 @@ import type { Appointment, GroupSession, AvailabilityWindow, Clinician } from ".
 
 const TABS = [
   { key: "schedule", label: "Schedule" },
-  { key: "book", label: "Book Assessment" },
+  { key: "book", label: "Book Appointment" },
   { key: "availability", label: "Set Availability" },
 ] as const;
 
@@ -181,7 +181,7 @@ export default function SchedulePage() {
         <div className="max-w-2xl">
           <div className="bg-white rounded-2xl border border-warm-200 shadow-sm p-6">
             <h2 className="text-xl font-semibold text-warm-800 mb-6">
-              Book an Assessment
+              Book an Appointment
             </h2>
             <BookingFlow
               clientId={user?.uid || ""}

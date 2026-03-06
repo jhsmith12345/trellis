@@ -646,7 +646,7 @@ async def initiate_discharge(
         # Delete Calendar event
         if appt.get("calendar_event_id"):
             try:
-                delete_calendar_event(appt["calendar_event_id"])
+                delete_calendar_event(appt["calendar_event_id"], clinician_email=appt.get("clinician_email", ""))
             except Exception as e:
                 logger.error(
                     "Failed to delete calendar event %s during discharge: %s",

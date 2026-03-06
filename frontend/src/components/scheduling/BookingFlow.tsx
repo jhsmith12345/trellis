@@ -2,6 +2,21 @@ import { useState, useMemo } from "react";
 import type { TimeSlot } from "../../types";
 import { Button } from "../Button";
 
+const APPT_TYPES = [
+  { value: "assessment", label: "Assessment", cpt: "90791", duration: 60 },
+  { value: "individual", label: "Individual Session", cpt: "90834", duration: 50 },
+  { value: "individual_extended", label: "Individual Session (Extended)", cpt: "90837", duration: 90 },
+] as const;
+
+type ApptType = (typeof APPT_TYPES)[number]["value"];
+
+const CADENCE_OPTIONS = [
+  { value: "", label: "Single appointment" },
+  { value: "weekly", label: "Weekly (4 sessions)" },
+  { value: "biweekly", label: "Biweekly (4 sessions)" },
+  { value: "monthly", label: "Monthly (4 sessions)" },
+] as const;
+
 interface BookingFlowProps {
   onBook: (data: {
     clinician_id: string;
@@ -12,6 +27,7 @@ interface BookingFlowProps {
     type: string;
     scheduled_at: string;
     duration_minutes: number;
+    cadence?: string;
   }) => Promise<void>;
   clientId: string;
   clientEmail: string;
@@ -37,12 +53,16 @@ export function BookingFlow({
   const [step, setStep] = useState<Step>("clinician");
   const [clinicianId, setClinicianId] = useState("");
   const [clinicianEmail, setClinicianEmail] = useState("");
+  const [apptType, setApptType] = useState<ApptType>("assessment");
+  const [cadence, setCadence] = useState("");
   const [slots, setSlots] = useState<TimeSlot[]>([]);
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
   const [loading, setLoading] = useState(false);
   const [booking, setBooking] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+
+  const typeInfo = APPT_TYPES.find((t) => t.value === apptType)!;
 
   async function handleClinicianSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -57,7 +77,7 @@ export function BookingFlow({
         clinicianId,
         start.toISOString(),
         end.toISOString(),
-        "assessment",
+        apptType,
       );
       setSlots(results);
       setStep("slots");
@@ -93,9 +113,10 @@ export function BookingFlow({
         client_id: clientId,
         client_email: clientEmail,
         client_name: clientName,
-        type: "assessment",
+        type: apptType,
         scheduled_at: selectedSlot.start,
-        duration_minutes: 60,
+        duration_minutes: typeInfo.duration,
+        ...(cadence ? { cadence } : {}),
       });
       setSuccess(true);
     } catch (err: any) {
@@ -113,9 +134,9 @@ export function BookingFlow({
             <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </div>
-        <h3 className="text-xl font-semibold text-warm-800 mb-2">Assessment Booked</h3>
+        <h3 className="text-xl font-semibold text-warm-800 mb-2">Appointment Booked</h3>
         <p className="text-warm-500 mb-1">
-          Your initial assessment has been scheduled.
+          Your {typeInfo.label.toLowerCase()} has been scheduled{cadence ? ` (${cadence}, 4 sessions)` : ""}.
         </p>
         <p className="text-sm text-warm-400">Calendar invites have been sent to all participants.</p>
         <Button
@@ -127,6 +148,8 @@ export function BookingFlow({
             setSelectedSlot(null);
             setSlots([]);
             setSuccess(false);
+            setApptType("assessment");
+            setCadence("");
           }}
         >
           Book Another
@@ -169,13 +192,51 @@ export function BookingFlow({
         </div>
       )}
 
-      {/* Step 1: Enter clinician */}
+      {/* Step 1: Enter clinician & type */}
       {step === "clinician" && (
         <div>
           <h3 className="text-lg font-semibold text-warm-800 mb-4">
-            Which clinician?
+            Appointment Details
           </h3>
           <form onSubmit={handleClinicianSubmit} className="space-y-4 max-w-md">
+            <div>
+              <label className="block text-sm font-medium text-warm-700 mb-1">
+                Appointment Type
+              </label>
+              <select
+                value={apptType}
+                onChange={(e) => {
+                  const val = e.target.value as ApptType;
+                  setApptType(val);
+                  if (val === "assessment") setCadence("");
+                }}
+                className="w-full px-4 py-2.5 border border-warm-300 rounded-lg text-warm-800 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent bg-white"
+              >
+                {APPT_TYPES.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label} ({t.duration} min — CPT {t.cpt})
+                  </option>
+                ))}
+              </select>
+            </div>
+            {apptType !== "assessment" && (
+              <div>
+                <label className="block text-sm font-medium text-warm-700 mb-1">
+                  Recurrence
+                </label>
+                <select
+                  value={cadence}
+                  onChange={(e) => setCadence(e.target.value)}
+                  className="w-full px-4 py-2.5 border border-warm-300 rounded-lg text-warm-800 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent bg-white"
+                >
+                  {CADENCE_OPTIONS.map((c) => (
+                    <option key={c.value} value={c.value}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div>
               <label className="block text-sm font-medium text-warm-700 mb-1">
                 Clinician ID
@@ -270,12 +331,12 @@ export function BookingFlow({
       {step === "confirm" && selectedSlot && (
         <div>
           <h3 className="text-lg font-semibold text-warm-800 mb-4">
-            Confirm Assessment
+            Confirm Appointment
           </h3>
           <div className="bg-warm-50 rounded-xl p-5 space-y-3 mb-6">
             <div className="flex justify-between text-sm">
               <span className="text-warm-500">Type</span>
-              <span className="font-medium text-warm-800">Assessment</span>
+              <span className="font-medium text-warm-800">{typeInfo.label}</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-warm-500">Date & Time</span>
@@ -298,8 +359,14 @@ export function BookingFlow({
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-warm-500">Duration</span>
-              <span className="font-medium text-warm-800">60 minutes</span>
+              <span className="font-medium text-warm-800">{typeInfo.duration} minutes</span>
             </div>
+            {cadence && (
+              <div className="flex justify-between text-sm">
+                <span className="text-warm-500">Recurrence</span>
+                <span className="font-medium text-warm-800 capitalize">{cadence} (4 sessions)</span>
+              </div>
+            )}
           </div>
           <div className="flex gap-3">
             <Button variant="ghost" onClick={() => setStep("slots")}>

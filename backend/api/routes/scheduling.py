@@ -116,7 +116,7 @@ class BookAppointmentRequest(BaseModel):
     type: str  # "assessment" | "individual" | "individual_extended"
     scheduled_at: str  # ISO datetime
     duration_minutes: int = 60
-    cadence: str = "weekly"  # "weekly" | "biweekly" | "monthly"
+    cadence: str | None = None  # "weekly" | "biweekly" | "monthly" — None for single appointment
 
 
 class UpdateAppointmentRequest(BaseModel):
@@ -291,14 +291,18 @@ async def book_appointment(
     if body.type not in APPOINTMENT_TYPES:
         raise HTTPException(400, f"Type must be one of: {', '.join(APPOINTMENT_TYPES.keys())}")
 
-    if body.cadence not in ("weekly", "biweekly", "monthly"):
+    if body.cadence is not None and body.cadence not in ("weekly", "biweekly", "monthly"):
         raise HTTPException(400, "Cadence must be 'weekly', 'biweekly', or 'monthly'")
 
     # Clients can only book appointments for themselves
     if not is_clinician(user) and body.client_id != user["uid"]:
         raise HTTPException(403, "Clients can only book appointments for themselves")
 
-    count = 1 if body.type == "assessment" else 4
+    # Assessment is always single. Individual types: single if no cadence, 4 recurring if cadence provided.
+    if body.type == "assessment" or body.cadence is None:
+        count = 1
+    else:
+        count = 4
     recurrence_id = str(uuid.uuid4()) if count > 1 else None
 
     scheduled = datetime.fromisoformat(body.scheduled_at)
@@ -318,6 +322,7 @@ async def book_appointment(
                 end_dt=end_dt.isoformat(),
                 attendee_emails=[body.client_email, body.clinician_email],
                 description=f"Type: {body.type} (CPT {type_info['cpt']})\nClient: {body.client_name}",
+                clinician_email=body.clinician_email,
             )
         except Exception as e:
             logger.error("Calendar event creation failed: %s", e)
@@ -436,13 +441,13 @@ async def patch_appointment(
 
     if body.status == "cancelled" and appt.get("calendar_event_id"):
         try:
-            delete_calendar_event(appt["calendar_event_id"])
+            delete_calendar_event(appt["calendar_event_id"], clinician_email=appt.get("clinician_email", ""))
         except Exception as e:
             logger.error("Failed to delete calendar event: %s", e)
 
     if body.status == "completed" and appt.get("calendar_event_id"):
         try:
-            strip_conference_data(appt["calendar_event_id"])
+            strip_conference_data(appt["calendar_event_id"], clinician_email=appt.get("clinician_email", ""))
         except Exception as e:
             logger.error("Failed to strip conference data: %s", e)
 
@@ -634,7 +639,7 @@ async def client_cancel_appointment(
 
     if appt.get("calendar_event_id"):
         try:
-            delete_calendar_event(appt["calendar_event_id"])
+            delete_calendar_event(appt["calendar_event_id"], clinician_email=appt.get("clinician_email", ""))
         except Exception as e:
             logger.error("Failed to delete calendar event on client cancel: %s", e)
 
@@ -941,7 +946,7 @@ async def reconfirmation_cancel(token: str, request: Request):
     # Cancel the calendar event
     if appt.get("calendar_event_id"):
         try:
-            delete_calendar_event(appt["calendar_event_id"])
+            delete_calendar_event(appt["calendar_event_id"], clinician_email=appt.get("clinician_email", ""))
         except Exception as e:
             logger.error("Failed to delete calendar event on reconfirmation cancel: %s", e)
 
@@ -1007,7 +1012,7 @@ async def reconfirmation_change(
     # Delete old calendar event and create new one
     if appt.get("calendar_event_id"):
         try:
-            delete_calendar_event(appt["calendar_event_id"])
+            delete_calendar_event(appt["calendar_event_id"], clinician_email=appt.get("clinician_email", ""))
         except Exception as e:
             logger.error("Failed to delete old calendar event on reschedule: %s", e)
 
@@ -1021,6 +1026,7 @@ async def reconfirmation_change(
             end_dt=end_dt.isoformat(),
             attendee_emails=[appt["client_email"], appt["clinician_email"]],
             description=f"Type: {appt['type']}\nClient: {appt['client_name']}\n(Rescheduled)",
+            clinician_email=appt.get("clinician_email", ""),
         )
     except Exception as e:
         logger.error("Calendar event creation failed on reschedule: %s", e)
@@ -1076,7 +1082,7 @@ async def cron_check_reconfirmations(
         # Delete calendar event to free the slot
         if appt.get("calendar_event_id"):
             try:
-                delete_calendar_event(appt["calendar_event_id"])
+                delete_calendar_event(appt["calendar_event_id"], clinician_email=appt.get("clinician_email", ""))
             except Exception as e:
                 logger.error("Failed to delete calendar event for expired reconfirmation %s: %s", appt["id"], e)
 
@@ -1209,7 +1215,7 @@ async def cron_check_no_shows(
 
         if appt.get("calendar_event_id"):
             try:
-                strip_conference_data(appt["calendar_event_id"])
+                strip_conference_data(appt["calendar_event_id"], clinician_email=appt.get("clinician_email", ""))
             except Exception as e:
                 logger.error("Failed to strip conference data for no-show %s: %s", appt["id"], e)
 

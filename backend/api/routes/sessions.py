@@ -500,6 +500,7 @@ async def process_single_appointment(
             calendar_event_id=calendar_event_id,
             meet_link=meet_link,
             search_minutes=RECORDING_SEARCH_WINDOW,
+            clinician_email=appointment.get("clinician_email", ""),
         )
 
         if not recordings:
@@ -527,7 +528,7 @@ async def process_single_appointment(
         mime_type = "video/mp4"
 
         for rec in recordings:
-            download_result = download_recording(rec["id"])
+            download_result = download_recording(rec["id"], clinician_email=appointment.get("clinician_email", ""))
             if not download_result:
                 logger.warning("Failed to download fragment %s, skipping", rec["id"])
                 continue
@@ -585,7 +586,7 @@ async def process_single_appointment(
                 # Still delete recordings to clean up
                 if delete_after:
                     for fid in file_ids:
-                        delete_drive_file(fid)
+                        delete_drive_file(fid, clinician_email=appointment.get("clinician_email", ""))
                 return {
                     "status": "skipped",
                     "reason": "non_clinical_transcript",
@@ -636,7 +637,7 @@ async def process_single_appointment(
         # Strip Meet link so old link goes dead
         if calendar_event_id:
             try:
-                strip_conference_data(calendar_event_id)
+                strip_conference_data(calendar_event_id, clinician_email=appointment.get("clinician_email", ""))
             except Exception as e:
                 logger.error("Failed to strip conference data for %s: %s", appt_id, e)
 
@@ -644,7 +645,7 @@ async def process_single_appointment(
         recordings_deleted = 0
         if delete_after:
             for fid in file_ids:
-                if delete_drive_file(fid):
+                if delete_drive_file(fid, clinician_email=appointment.get("clinician_email", "")):
                     recordings_deleted += 1
                 else:
                     logger.warning("Failed to delete recording %s", fid)

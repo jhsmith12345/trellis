@@ -35,7 +35,6 @@ from googleapiclient.http import MediaIoBaseDownload
 logger = logging.getLogger(__name__)
 
 SA_KEY_PATH = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "sa-key.json")
-CALENDAR_USER = os.getenv("SENDER_EMAIL", "noreply@example.com")
 SCOPES = [
     "https://www.googleapis.com/auth/calendar",
     "https://www.googleapis.com/auth/drive",
@@ -45,8 +44,8 @@ SCOPES = [
 SA_KEY_JSON = os.getenv("SA_KEY_JSON", "")
 
 
-def _get_credentials():
-    """Build delegated credentials for API access."""
+def _get_credentials(user_email: str):
+    """Build delegated credentials for API access on behalf of user_email."""
     if SA_KEY_JSON:
         import json
         import base64
@@ -58,17 +57,17 @@ def _get_credentials():
         creds = service_account.Credentials.from_service_account_file(
             SA_KEY_PATH, scopes=SCOPES
         )
-    return creds.with_subject(CALENDAR_USER)
+    return creds.with_subject(user_email)
 
 
-def _get_calendar_service():
+def _get_calendar_service(user_email: str):
     """Build Calendar API service with delegated credentials."""
-    return build("calendar", "v3", credentials=_get_credentials(), cache_discovery=False)
+    return build("calendar", "v3", credentials=_get_credentials(user_email), cache_discovery=False)
 
 
-def _get_drive_service():
+def _get_drive_service(user_email: str):
     """Build Drive API service with delegated credentials."""
-    return build("drive", "v3", credentials=_get_credentials(), cache_discovery=False)
+    return build("drive", "v3", credentials=_get_credentials(user_email), cache_discovery=False)
 
 
 def create_calendar_event(
@@ -77,6 +76,7 @@ def create_calendar_event(
     end_dt: str,
     attendee_emails: list[str],
     description: str = "",
+    clinician_email: str = "",
 ) -> tuple[str, str]:
     """Create a Google Calendar event with a Meet link.
 
@@ -86,11 +86,12 @@ def create_calendar_event(
         end_dt: ISO 8601 datetime string for end
         attendee_emails: List of attendee email addresses
         description: Optional event description
+        clinician_email: Workspace user to delegate as (event organizer)
 
     Returns:
         (meet_link, event_id) tuple
     """
-    service = _get_calendar_service()
+    service = _get_calendar_service(clinician_email)
 
     event_body = {
         "summary": summary,
@@ -129,6 +130,7 @@ def update_calendar_event(
     event_id: str,
     attendee_emails: list[str] | None = None,
     summary: str | None = None,
+    clinician_email: str = "",
 ) -> None:
     """Update an existing calendar event (e.g. add attendees to group events).
 
@@ -136,8 +138,9 @@ def update_calendar_event(
         event_id: Google Calendar event ID
         attendee_emails: New full list of attendee emails (replaces existing)
         summary: New event title
+        clinician_email: Workspace user to delegate as
     """
-    service = _get_calendar_service()
+    service = _get_calendar_service(clinician_email)
 
     event = service.events().get(calendarId="primary", eventId=event_id).execute()
 
@@ -156,13 +159,14 @@ def update_calendar_event(
     logger.info("Calendar event updated: %s", event_id)
 
 
-def delete_calendar_event(event_id: str) -> None:
+def delete_calendar_event(event_id: str, clinician_email: str = "") -> None:
     """Delete a calendar event and notify attendees.
 
     Args:
         event_id: Google Calendar event ID
+        clinician_email: Workspace user to delegate as
     """
-    service = _get_calendar_service()
+    service = _get_calendar_service(clinician_email)
 
     service.events().delete(
         calendarId="primary",
@@ -173,13 +177,13 @@ def delete_calendar_event(event_id: str) -> None:
     logger.info("Calendar event deleted: %s", event_id)
 
 
-def get_calendar_event(event_id: str) -> dict | None:
+def get_calendar_event(event_id: str, clinician_email: str = "") -> dict | None:
     """Fetch a Calendar event by ID.
 
     Returns the event resource dict, or None if not found.
     Useful for matching recordings to appointments via event metadata.
     """
-    service = _get_calendar_service()
+    service = _get_calendar_service(clinician_email)
     try:
         event = service.events().get(calendarId="primary", eventId=event_id).execute()
         return event
@@ -188,7 +192,7 @@ def get_calendar_event(event_id: str) -> dict | None:
         return None
 
 
-def strip_conference_data(event_id: str) -> bool:
+def strip_conference_data(event_id: str, clinician_email: str = "") -> bool:
     """Remove conferenceData from a Calendar event so the Meet link goes dead.
 
     Used after session completion or no-show to prevent clients from
@@ -196,7 +200,7 @@ def strip_conference_data(event_id: str) -> bool:
 
     Returns True if stripped successfully, False otherwise.
     """
-    service = _get_calendar_service()
+    service = _get_calendar_service(clinician_email)
     try:
         event = service.events().get(calendarId="primary", eventId=event_id).execute()
         if "conferenceData" not in event:
@@ -234,6 +238,7 @@ def extract_meet_code(meet_link: str) -> str | None:
 def list_recent_recordings(
     max_results: int = 50,
     since_minutes: int = 180,
+    clinician_email: str = "",
 ) -> list[dict]:
     """List recent video recordings in the clinician's Drive.
 
@@ -244,11 +249,12 @@ def list_recent_recordings(
     Args:
         max_results: Maximum number of files to return.
         since_minutes: Only return files created within this many minutes.
+        clinician_email: Workspace user to delegate as
 
     Returns:
         List of dicts with id, name, mimeType, createdTime, webViewLink.
     """
-    service = _get_drive_service()
+    service = _get_drive_service(clinician_email)
 
     from datetime import datetime, timedelta, timezone
     since_dt = datetime.now(timezone.utc) - timedelta(minutes=since_minutes)
@@ -277,12 +283,12 @@ def list_recent_recordings(
         return []
 
 
-def get_recording_file(file_id: str) -> dict | None:
+def get_recording_file(file_id: str, clinician_email: str = "") -> dict | None:
     """Get metadata for a specific Drive file.
 
     Returns file resource dict or None if not found.
     """
-    service = _get_drive_service()
+    service = _get_drive_service(clinician_email)
     try:
         return service.files().get(
             fileId=file_id,
@@ -293,12 +299,12 @@ def get_recording_file(file_id: str) -> dict | None:
         return None
 
 
-def download_recording(file_id: str) -> tuple[bytes, str] | None:
+def download_recording(file_id: str, clinician_email: str = "") -> tuple[bytes, str] | None:
     """Download a recording file from Drive.
 
     Returns (file_bytes, mime_type) or None on failure.
     """
-    service = _get_drive_service()
+    service = _get_drive_service(clinician_email)
     try:
         # Get file metadata first for mime type
         meta = service.files().get(fileId=file_id, fields="mimeType, size").execute()
@@ -325,12 +331,12 @@ def download_recording(file_id: str) -> tuple[bytes, str] | None:
         return None
 
 
-def delete_drive_file(file_id: str) -> bool:
+def delete_drive_file(file_id: str, clinician_email: str = "") -> bool:
     """Delete a file from Drive (used for post-transcription cleanup).
 
     Returns True if deleted successfully, False otherwise.
     """
-    service = _get_drive_service()
+    service = _get_drive_service(clinician_email)
     try:
         service.files().delete(fileId=file_id).execute()
         logger.info("Deleted Drive file: %s", file_id)
@@ -343,9 +349,10 @@ def delete_drive_file(file_id: str) -> bool:
 def _resolve_meet_code(
     calendar_event_id: str,
     meet_link: str | None = None,
+    clinician_email: str = "",
 ) -> tuple[str | None, dict | None]:
     """Extract the Meet code for an event, returning (meet_code, event_dict)."""
-    event = get_calendar_event(calendar_event_id)
+    event = get_calendar_event(calendar_event_id, clinician_email)
     if not event:
         logger.warning("Calendar event %s not found for recording match", calendar_event_id)
         return None, None
@@ -392,6 +399,7 @@ def get_all_recordings_for_event(
     calendar_event_id: str,
     meet_link: str | None = None,
     search_minutes: int = 360,
+    clinician_email: str = "",
 ) -> list[dict]:
     """Find ALL recordings matching a Calendar event's Meet code.
 
@@ -403,12 +411,13 @@ def get_all_recordings_for_event(
         calendar_event_id: Google Calendar event ID
         meet_link: Optional Meet link for code-based matching
         search_minutes: How far back to search for recordings in Drive
+        clinician_email: Workspace user to delegate as
 
     Returns:
         List of Drive file resource dicts, sorted by createdTime ascending.
         Empty list if no matches found.
     """
-    meet_code, event = _resolve_meet_code(calendar_event_id, meet_link)
+    meet_code, event = _resolve_meet_code(calendar_event_id, meet_link, clinician_email)
     if not meet_code:
         logger.warning("No Meet code found for event %s", calendar_event_id)
         return []
@@ -416,6 +425,7 @@ def get_all_recordings_for_event(
     recordings = list_recent_recordings(
         max_results=100,
         since_minutes=search_minutes,
+        clinician_email=clinician_email,
     )
 
     event_summary = (event or {}).get("summary", "")
@@ -435,6 +445,7 @@ def get_meet_recording_for_event(
     calendar_event_id: str,
     meet_link: str | None = None,
     search_minutes: int = 180,
+    clinician_email: str = "",
 ) -> dict | None:
     """Find a single recording matching a Calendar event (legacy helper).
 
@@ -442,6 +453,6 @@ def get_meet_recording_for_event(
     fragments for clustering. This returns only the first match.
     """
     recordings = get_all_recordings_for_event(
-        calendar_event_id, meet_link, search_minutes,
+        calendar_event_id, meet_link, search_minutes, clinician_email,
     )
     return recordings[0] if recordings else None
