@@ -398,57 +398,6 @@ def _build_diarized_transcript(words: list[dict]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Short-transcript validation via Gemini Flash
-# ---------------------------------------------------------------------------
-
-# Transcripts under this character count get LLM-validated to filter junk
-SHORT_TRANSCRIPT_THRESHOLD = 2000
-
-GEMINI_MODEL = os.getenv("GEMINI_NOTE_MODEL", "gemini-2.5-flash-preview-05-20")
-
-
-async def validate_short_transcript(transcript: str) -> str:
-    """Ask Gemini Flash whether a short transcript is a real clinical session.
-
-    Returns one of: "session", "not_session", "uncertain".
-    """
-    from google import genai
-    from google.genai.types import GenerateContentConfig
-
-    client = genai.Client(
-        vertexai=True,
-        project=GCP_PROJECT_ID,
-        location=GCP_REGION,
-    )
-
-    prompt = (
-        "You are triaging a short therapy session recording transcript. "
-        "Determine if this is an actual clinical therapy session or a "
-        "non-clinical interaction (tech test, scheduling call, brief check-in, accidental join).\n\n"
-        f"Transcript:\n{transcript[:3000]}\n\n"
-        "Respond with exactly one word: session | not_session | uncertain"
-    )
-
-    try:
-        response = client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=prompt,
-            config=GenerateContentConfig(
-                temperature=0.0,
-                max_output_tokens=10,
-            ),
-        )
-        result = response.text.strip().lower()
-        if result in ("session", "not_session", "uncertain"):
-            return result
-        logger.warning("Unexpected LLM validation response: %s", result)
-        return "uncertain"
-    except Exception as e:
-        logger.error("LLM transcript validation failed: %s", e)
-        return "uncertain"
-
-
-# ---------------------------------------------------------------------------
 # Core processing pipeline
 # ---------------------------------------------------------------------------
 
@@ -569,33 +518,7 @@ async def process_single_appointment(
             transcription.get("duration_sec", 0),
         )
 
-        # Step 5: LLM-validate short transcripts to filter junk
-        llm_validation = None
-        if len(transcript_text) < SHORT_TRANSCRIPT_THRESHOLD:
-            llm_validation = await validate_short_transcript(transcript_text)
-            logger.info(
-                "Short transcript validation for %s: %s (%d chars)",
-                appt_id, llm_validation, len(transcript_text),
-            )
-            if llm_validation == "not_session":
-                await update_appointment_recording(
-                    appt_id,
-                    recording_status="skipped",
-                    recording_error="Short recording classified as non-clinical by LLM",
-                )
-                # Still delete recordings to clean up
-                if delete_after:
-                    for fid in file_ids:
-                        delete_drive_file(fid, clinician_email=appointment.get("clinician_email", ""))
-                return {
-                    "status": "skipped",
-                    "reason": "non_clinical_transcript",
-                    "appointment_id": appt_id,
-                    "llm_validation": llm_validation,
-                    "transcript_length": len(transcript_text),
-                }
-
-        # Step 6: Store as encounter
+        # Step 5: Store as encounter
         encounter_data = {
             "appointment_id": appt_id,
             "appointment_type": appointment.get("type"),
@@ -608,9 +531,6 @@ async def process_single_appointment(
             "transcription_source": "google_stt_v2_chirp",
             "processed_at": datetime.utcnow().isoformat(),
         }
-        if llm_validation:
-            encounter_data["llm_validation"] = llm_validation
-
         encounter_id = await create_encounter(
             client_id=appointment["client_id"],
             encounter_type="clinical",
@@ -659,7 +579,6 @@ async def process_single_appointment(
             "speaker_count": transcription.get("speaker_count", 0),
             "recording_fragment_count": len(recordings),
             "recordings_deleted": recordings_deleted,
-            "llm_validation": llm_validation,
         }
 
     except Exception as e:
