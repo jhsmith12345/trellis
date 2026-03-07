@@ -10,13 +10,6 @@ const APPT_TYPES = [
 
 type ApptType = (typeof APPT_TYPES)[number]["value"];
 
-const CADENCE_OPTIONS = [
-  { value: "", label: "Single appointment" },
-  { value: "weekly", label: "Weekly (4 sessions)" },
-  { value: "biweekly", label: "Biweekly (4 sessions)" },
-  { value: "monthly", label: "Monthly (4 sessions)" },
-] as const;
-
 interface BookingFlowProps {
   onBook: (data: {
     clinician_id: string;
@@ -27,7 +20,6 @@ interface BookingFlowProps {
     type: string;
     scheduled_at: string;
     duration_minutes: number;
-    cadence?: "weekly" | "biweekly" | "monthly";
   }) => Promise<void>;
   clientId: string;
   clientEmail: string;
@@ -54,7 +46,6 @@ export function BookingFlow({
   const [clinicianId, setClinicianId] = useState("");
   const [clinicianEmail, setClinicianEmail] = useState("");
   const [apptType, setApptType] = useState<ApptType>("assessment");
-  const [cadence, setCadence] = useState<"" | "weekly" | "biweekly" | "monthly">("");
   const [slots, setSlots] = useState<TimeSlot[]>([]);
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
   const [loading, setLoading] = useState(false);
@@ -116,7 +107,6 @@ export function BookingFlow({
         type: apptType,
         scheduled_at: selectedSlot.start,
         duration_minutes: typeInfo.duration,
-        ...(cadence ? { cadence } : {}),
       });
       setSuccess(true);
     } catch (err: any) {
@@ -136,7 +126,7 @@ export function BookingFlow({
         </div>
         <h3 className="text-xl font-semibold text-warm-800 mb-2">Appointment Booked</h3>
         <p className="text-warm-500 mb-1">
-          Your {typeInfo.label.toLowerCase()} has been scheduled{cadence ? ` (${cadence}, 4 sessions)` : ""}.
+          Your {typeInfo.label.toLowerCase()} has been scheduled.
         </p>
         <p className="text-sm text-warm-400">Calendar invites have been sent to all participants.</p>
         <Button
@@ -149,7 +139,6 @@ export function BookingFlow({
             setSlots([]);
             setSuccess(false);
             setApptType("assessment");
-            setCadence("");
           }}
         >
           Book Another
@@ -205,11 +194,7 @@ export function BookingFlow({
               </label>
               <select
                 value={apptType}
-                onChange={(e) => {
-                  const val = e.target.value as ApptType;
-                  setApptType(val);
-                  if (val === "assessment") setCadence("");
-                }}
+                onChange={(e) => setApptType(e.target.value as ApptType)}
                 className="w-full px-4 py-2.5 border border-warm-300 rounded-lg text-warm-800 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent bg-white"
               >
                 {APPT_TYPES.map((t) => (
@@ -219,24 +204,6 @@ export function BookingFlow({
                 ))}
               </select>
             </div>
-            {apptType !== "assessment" && (
-              <div>
-                <label className="block text-sm font-medium text-warm-700 mb-1">
-                  Recurrence
-                </label>
-                <select
-                  value={cadence}
-                  onChange={(e) => setCadence(e.target.value as "" | "weekly" | "biweekly" | "monthly")}
-                  className="w-full px-4 py-2.5 border border-warm-300 rounded-lg text-warm-800 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent bg-white"
-                >
-                  {CADENCE_OPTIONS.map((c) => (
-                    <option key={c.value} value={c.value}>
-                      {c.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
             <div>
               <label className="block text-sm font-medium text-warm-700 mb-1">
                 Clinician ID
@@ -361,12 +328,6 @@ export function BookingFlow({
               <span className="text-warm-500">Duration</span>
               <span className="font-medium text-warm-800">{typeInfo.duration} minutes</span>
             </div>
-            {cadence && (
-              <div className="flex justify-between text-sm">
-                <span className="text-warm-500">Recurrence</span>
-                <span className="font-medium text-warm-800 capitalize">{cadence} (4 sessions)</span>
-              </div>
-            )}
           </div>
           <div className="flex gap-3">
             <Button variant="ghost" onClick={() => setStep("slots")}>

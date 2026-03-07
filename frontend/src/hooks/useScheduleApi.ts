@@ -86,7 +86,6 @@ export function useScheduleApi() {
       type: string;
       scheduled_at: string;
       duration_minutes?: number;
-      cadence?: "weekly" | "biweekly" | "monthly";
     }) => {
       const token = await getIdToken();
       return api<{

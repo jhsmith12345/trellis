@@ -80,7 +80,7 @@ const STATUS_STYLES: Record<string, string> = {
   released: "bg-warm-200 text-warm-500",
 };
 
-type TabKey = "upcoming" | "past" | "book" | "recurring";
+type TabKey = "upcoming" | "past" | "book";
 
 // ---------------------------------------------------------------------------
 // Component
@@ -102,7 +102,6 @@ export default function ClientAppointmentsPage() {
   const [slots, setSlots] = useState<TimeSlot[]>([]);
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
   const [bookingType, setBookingType] = useState<"individual" | "assessment">("individual");
-  const [cadence, setCadence] = useState<"once" | "weekly" | "biweekly" | "monthly">("once");
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [booking, setBooking] = useState(false);
   const [bookingSuccess, setBookingSuccess] = useState(false);
@@ -224,7 +223,6 @@ export default function ClientAppointmentsPage() {
         type: bookingType,
         scheduled_at: selectedSlot.start,
         duration_minutes: practice.default_session_duration || 60,
-        ...(bookingType === "individual" && cadence !== "once" ? { cadence } : {}),
       });
       setBookingSuccess(true);
       setSelectedSlot(null);
@@ -321,7 +319,6 @@ export default function ClientAppointmentsPage() {
             ...(!isDischarged
               ? [
                   { key: "book" as TabKey, label: "Book Session" },
-                  { key: "recurring" as TabKey, label: "Recurring" },
                 ]
               : []),
           ]
@@ -531,9 +528,7 @@ export default function ClientAppointmentsPage() {
               <h3 className="text-xl font-semibold text-warm-800 mb-2">Appointment Booked</h3>
               <p className="text-warm-500 mb-1">
                 {bookingType === "individual"
-                  ? cadence === "once"
-                    ? "Your session has been scheduled."
-                    : `${cadence === "weekly" ? "4 weekly" : cadence === "biweekly" ? "4 biweekly" : "4 monthly"} sessions have been scheduled.`
+                  ? "Your session has been scheduled."
                   : "Your assessment has been scheduled."}
               </p>
               <p className="text-sm text-warm-400">Calendar invites have been sent.</p>
@@ -562,7 +557,7 @@ export default function ClientAppointmentsPage() {
                   {(
                     [
                       { value: "assessment" as const, label: "Assessment", desc: "Initial evaluation" },
-                      { value: "individual" as const, label: "Individual", desc: "Single or recurring sessions" },
+                      { value: "individual" as const, label: "Individual", desc: "Standard therapy session" },
                     ] as const
                   ).map((opt) => (
                     <button
@@ -580,37 +575,6 @@ export default function ClientAppointmentsPage() {
                   ))}
                 </div>
               </div>
-
-              {/* Cadence selection (only for individual) */}
-              {bookingType === "individual" && (
-                <div className="mb-5">
-                  <label className="block text-sm font-medium text-warm-700 mb-2">
-                    Frequency
-                  </label>
-                  <div className="flex gap-2 flex-wrap">
-                    {(
-                      [
-                        { value: "once" as const, label: "Once" },
-                        { value: "weekly" as const, label: "Weekly" },
-                        { value: "biweekly" as const, label: "Every 2 Weeks" },
-                        { value: "monthly" as const, label: "Monthly" },
-                      ] as const
-                    ).map((opt) => (
-                      <button
-                        key={opt.value}
-                        onClick={() => setCadence(opt.value)}
-                        className={`px-4 py-2 text-sm font-medium rounded-lg border transition-all ${
-                          cadence === opt.value
-                            ? "border-teal-500 bg-teal-50 text-teal-700"
-                            : "border-warm-200 text-warm-600 hover:border-teal-300"
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
 
               <button
                 onClick={loadSlots}
@@ -679,23 +643,10 @@ export default function ClientAppointmentsPage() {
                     {formatDateLong(selectedSlot.start)} at {formatTime(selectedSlot.start)}
                   </span>
                 </div>
-                {bookingType === "individual" && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-warm-500">Frequency</span>
-                    <span className="font-medium text-warm-800 capitalize">{cadence === "once" ? "One-time" : cadence}</span>
-                  </div>
-                )}
                 {practice?.clinician_name && (
                   <div className="flex justify-between text-sm">
                     <span className="text-warm-500">Clinician</span>
                     <span className="font-medium text-warm-800">{practice.clinician_name}</span>
-                  </div>
-                )}
-                {bookingType === "individual" && cadence !== "once" && (
-                  <div className="border-t border-warm-200 pt-3 mt-3">
-                    <p className="text-sm text-teal-700 font-medium">
-                      This will create 4 {cadence} sessions at this time.
-                    </p>
                   </div>
                 )}
               </div>
@@ -719,119 +670,6 @@ export default function ClientAppointmentsPage() {
         </div>
       )}
 
-      {/* Recurring series tab */}
-      {tab === "recurring" && (
-        <div className="bg-white rounded-2xl border border-warm-200 shadow-sm p-5 md:p-6">
-          <h2 className="text-lg font-semibold text-warm-800 mb-2">Set Up Recurring Sessions</h2>
-          <p className="text-sm text-warm-500 mb-6">
-            After your first session, set up a regular recurring appointment at a time that works for you.
-          </p>
-
-          <div className="space-y-5">
-            {/* Cadence */}
-            <div>
-              <label className="block text-sm font-medium text-warm-700 mb-2">
-                How often?
-              </label>
-              <div className="grid grid-cols-3 gap-2">
-                {(
-                  [
-                    { value: "weekly" as const, label: "Weekly" },
-                    { value: "biweekly" as const, label: "Every 2 Weeks" },
-                    { value: "monthly" as const, label: "Monthly" },
-                  ] as const
-                ).map((opt) => (
-                  <button
-                    key={opt.value}
-                    onClick={() => setCadence(opt.value)}
-                    className={`px-4 py-3 text-sm font-medium rounded-lg border transition-all ${
-                      cadence === opt.value
-                        ? "border-teal-500 bg-teal-50 text-teal-700"
-                        : "border-warm-200 text-warm-600 hover:border-teal-300"
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Load slots */}
-            <div>
-              <button
-                onClick={() => {
-                  setBookingType("individual");
-                  loadSlots();
-                }}
-                disabled={slotsLoading || !practice?.clinician_uid}
-                className="w-full sm:w-auto px-6 py-2.5 bg-teal-600 text-white text-sm font-semibold rounded-lg hover:bg-teal-700 transition-colors disabled:opacity-50 active:bg-teal-800"
-              >
-                {slotsLoading ? "Loading..." : "See Available Times"}
-              </button>
-            </div>
-
-            {/* Slot selection */}
-            {slots.length > 0 && (
-              <div>
-                <h3 className="text-sm font-semibold text-warm-600 uppercase tracking-wide mb-3">
-                  Pick Your Preferred Time
-                </h3>
-                <div className="space-y-4 max-h-[400px] overflow-y-auto">
-                  {Object.entries(slotsByDate).map(([date, daySlots]) => (
-                    <div key={date}>
-                      <h4 className="text-sm font-semibold text-warm-700 mb-2 sticky top-0 bg-white py-1">
-                        {date}
-                      </h4>
-                      <div className="flex flex-wrap gap-2">
-                        {daySlots.map((s) => {
-                          const t = new Date(s.start);
-                          const label = t.toLocaleTimeString("en-US", {
-                            hour: "numeric",
-                            minute: "2-digit",
-                          });
-                          const selected = selectedSlot?.start === s.start;
-                          return (
-                            <button
-                              key={s.start}
-                              onClick={() => setSelectedSlot(s)}
-                              className={`px-4 py-2.5 rounded-lg text-sm font-medium border transition-all ${
-                                selected
-                                  ? "border-teal-500 bg-teal-50 text-teal-700"
-                                  : "border-warm-200 text-warm-700 hover:border-teal-400 hover:bg-teal-50"
-                              }`}
-                            >
-                              {label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {selectedSlot && (
-                  <div className="mt-6 bg-warm-50 rounded-xl p-4">
-                    <p className="text-sm text-warm-700">
-                      <strong>Selected:</strong> {formatDateLong(selectedSlot.start)} at{" "}
-                      {formatTime(selectedSlot.start)} ({cadence})
-                    </p>
-                    <p className="text-xs text-warm-500 mt-1">
-                      This will create 4 {cadence} sessions starting at this time.
-                    </p>
-                    <button
-                      onClick={handleBook}
-                      disabled={booking}
-                      className="mt-3 px-6 py-2.5 bg-teal-600 text-white text-sm font-semibold rounded-lg hover:bg-teal-700 transition-colors disabled:opacity-50 active:bg-teal-800"
-                    >
-                      {booking ? "Booking..." : "Set Up Recurring Sessions"}
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
