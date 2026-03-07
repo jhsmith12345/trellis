@@ -3,6 +3,9 @@
 
 FROM python:3.12-slim
 
+# Install ffmpeg for extracting audio from Meet recordings (MP4 → audio)
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
+
 # Security: run as non-root
 RUN groupadd -r trellis && useradd -r -g trellis -d /app -s /sbin/nologin trellis
 

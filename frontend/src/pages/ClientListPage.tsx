@@ -37,6 +37,7 @@ export default function ClientListPage() {
   const [showInvite, setShowInvite] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteName, setInviteName] = useState("");
+  const [inviteIntakeMode, setInviteIntakeMode] = useState<"standard" | "iop">("standard");
   const [inviteLoading, setInviteLoading] = useState(false);
   const [inviteMsg, setInviteMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const isGroup = practiceType === "group";
@@ -84,10 +85,12 @@ export default function ClientListPage() {
       await api.post("/api/clients/invite", {
         email: inviteEmail,
         client_name: inviteName || undefined,
+        intake_mode: inviteIntakeMode,
       });
       setInviteMsg({ type: "success", text: `Invitation sent to ${inviteEmail}` });
       setInviteEmail("");
       setInviteName("");
+      setInviteIntakeMode("standard");
     } catch (err: any) {
       setInviteMsg({ type: "error", text: err.message || "Failed to send invitation" });
     } finally {
@@ -143,6 +146,35 @@ export default function ClientListPage() {
                 placeholder="Client name"
                 className="w-full px-3 py-2 rounded-lg border border-warm-200 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none transition-all text-warm-800 text-sm"
               />
+            </div>
+            <div className="min-w-[140px]">
+              <label className="block text-xs font-medium text-warm-500 mb-1">
+                Intake Type
+              </label>
+              <div className="flex rounded-lg border border-warm-200 overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setInviteIntakeMode("standard")}
+                  className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
+                    inviteIntakeMode === "standard"
+                      ? "bg-teal-600 text-white"
+                      : "bg-white text-warm-500 hover:bg-warm-50"
+                  }`}
+                >
+                  Standard
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInviteIntakeMode("iop")}
+                  className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
+                    inviteIntakeMode === "iop"
+                      ? "bg-teal-600 text-white"
+                      : "bg-white text-warm-500 hover:bg-warm-50"
+                  }`}
+                >
+                  IOP / PHP
+                </button>
+              </div>
             </div>
             <button
               type="submit"

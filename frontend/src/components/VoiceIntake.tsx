@@ -25,10 +25,11 @@ function StatusBadge({ status }: { status: VoiceStatus }) {
   );
 }
 
-export function VoiceIntake() {
+export function VoiceIntake({ intakeMode = "standard" }: { intakeMode?: "standard" | "iop" }) {
   const { status, transcript, error, startSession, endSession } =
-    useVoiceSession();
+    useVoiceSession({ intakeMode });
   const transcriptEndRef = useRef<HTMLDivElement>(null);
+  const isIop = intakeMode === "iop";
 
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -38,11 +39,12 @@ export function VoiceIntake() {
     <div className="max-w-2xl mx-auto px-6 py-12">
       <div className="text-center mb-10">
         <h2 className="font-display text-2xl font-bold text-warm-800 mb-2">
-          Voice Intake
+          {isIop ? "Admissions Conversation" : "Voice Intake"}
         </h2>
         <p className="text-warm-500">
-          Our AI assistant will guide you through a brief conversation to
-          understand your needs.
+          {isIop
+            ? "Our AI assistant will walk you through the admissions process. Take your time — everything you share helps us prepare the best plan for you."
+            : "Our AI assistant will guide you through a brief conversation to understand your needs."}
         </p>
       </div>
 
@@ -68,8 +70,9 @@ export function VoiceIntake() {
             </svg>
           </div>
           <p className="text-warm-500 mb-6 max-w-sm mx-auto">
-            When you're ready, click below. We'll ask permission to use your
-            microphone, then the conversation will begin.
+            {isIop
+              ? "When you're ready, click below. This conversation usually takes 15-25 minutes. We'll ask permission to use your microphone, then it will begin."
+              : "When you're ready, click below. We'll ask permission to use your microphone, then the conversation will begin."}
           </p>
           <Button onClick={startSession} size="lg">
             Start Conversation

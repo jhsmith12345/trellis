@@ -161,6 +161,7 @@ async def validate_invitation(token: str):
         "practice_name": invitation["practice_name"],
         "clinician_name": invitation["clinician_name"],
         "email": invitation["email"],
+        "intake_mode": invitation.get("intake_mode", "standard"),
     }
 
 

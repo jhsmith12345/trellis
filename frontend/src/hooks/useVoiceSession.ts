@@ -23,8 +23,13 @@ interface UseVoiceSessionReturn {
 
 const SAMPLE_RATE = 16000;
 
-export function useVoiceSession(): UseVoiceSessionReturn {
+interface UseVoiceSessionOptions {
+  intakeMode?: "standard" | "iop";
+}
+
+export function useVoiceSession(options?: UseVoiceSessionOptions): UseVoiceSessionReturn {
   const { user, getIdToken } = useAuth();
+  const intakeMode = options?.intakeMode ?? "standard";
   const [status, setStatus] = useState<VoiceStatus>("idle");
   const [transcript, setTranscript] = useState<string[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -150,6 +155,7 @@ export function useVoiceSession(): UseVoiceSessionReturn {
             token,
             sessionType: "intake",
             clientId: user.uid,
+            intakeMode,
           })
         );
       };

@@ -5,10 +5,13 @@ import type { PracticeType, PracticeRole, Clinician } from "../types";
 
 export type AppRole = "clinician" | "client" | null;
 
+export type IntakeMode = "standard" | "iop";
+
 export interface InviteInfo {
   practice_name: string;
   clinician_name: string;
   email: string;
+  intake_mode: IntakeMode;
 }
 
 export interface AuthContextValue {

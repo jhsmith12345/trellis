@@ -702,7 +702,7 @@ async def sign_note(
         WHERE id = $6::uuid
         """,
         signed_by,
-        signed_at_iso,
+        now,
         content_hash,
         body.signature_data,
         pdf_bytes,

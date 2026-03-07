@@ -5,14 +5,17 @@ import { IntakeForm } from "../components/IntakeForm";
 import { InsuranceCardUpload } from "../components/InsuranceCardUpload";
 import { logOut } from "../lib/firebase";
 import { useNavigate } from "react-router-dom";
+import type { IntakeMode } from "../components/AuthProvider";
 
 type View = "insurance" | "choice" | "voice" | "form";
 
 export default function OnboardingPage() {
-  const { user } = useAuth();
+  const { user, inviteInfo } = useAuth();
   const navigate = useNavigate();
   const [view, setView] = useState<View>("insurance");
 
+  const intakeMode: IntakeMode = inviteInfo?.intake_mode ?? "standard";
+  const isIop = intakeMode === "iop";
   const displayName = user?.displayName?.split(" ")[0] || "there";
 
   async function handleSignOut() {
@@ -51,7 +54,7 @@ export default function OnboardingPage() {
             &larr; Back
           </button>
         </nav>
-        <VoiceIntake />
+        <VoiceIntake intakeMode={intakeMode} />
       </div>
     );
   }
@@ -70,7 +73,7 @@ export default function OnboardingPage() {
             &larr; Back
           </button>
         </nav>
-        <IntakeForm />
+        <IntakeForm intakeMode={intakeMode} />
       </div>
     );
   }
@@ -98,8 +101,9 @@ export default function OnboardingPage() {
             Welcome, {displayName}
           </h1>
           <p className="text-warm-500 text-lg mb-12 max-w-md mx-auto">
-            Let's get to know you. Choose how you'd like to complete your intake
-            — there's no wrong answer.
+            {isIop
+              ? "Let's get started with your admissions process. Choose how you'd like to begin — there's no wrong answer."
+              : "Let's get to know you. Choose how you'd like to complete your intake — there's no wrong answer."}
           </p>
 
           <div className="grid sm:grid-cols-2 gap-6">

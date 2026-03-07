@@ -24,6 +24,7 @@ Endpoints:
   - PUT  /api/sessions/config            — update recording configuration
 """
 import asyncio
+import json
 import logging
 import os
 import sys
@@ -47,7 +48,11 @@ from db import (
     get_appointments_by_recording_status,
     get_next_appointment_in_series,
     set_reconfirmation_sent,
+    get_client,
+    get_active_treatment_plan,
+    get_pool,
 )
+from note_generator import generate_note
 from gcal import (
     get_meet_recording_for_event,
     get_all_recordings_for_event,
@@ -76,6 +81,74 @@ APPOINTMENT_LOOKBACK_HOURS = int(os.getenv("APPOINTMENT_LOOKBACK_HOURS", "12"))
 # Base URLs for email links
 APP_BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:5173")
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8080")
+
+
+def _extract_audio_from_video(video_chunks: list[bytes]) -> tuple[bytes, str]:
+    """Extract audio from MP4 video fragments using ffmpeg.
+
+    Meet recordings are MP4 video files. Speech-to-Text needs audio only.
+    Uses ffmpeg to concatenate fragments and extract audio as FLAC (lossless,
+    well-supported by STT APIs).
+
+    Returns (audio_bytes, mime_type).
+    """
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Write fragments to temp files
+        fragment_paths = []
+        for i, chunk in enumerate(video_chunks):
+            path = os.path.join(tmpdir, f"fragment_{i:03d}.mp4")
+            with open(path, "wb") as f:
+                f.write(chunk)
+            fragment_paths.append(path)
+
+        output_path = os.path.join(tmpdir, "audio.flac")
+
+        if len(fragment_paths) == 1:
+            # Single file — extract audio directly
+            cmd = [
+                "ffmpeg", "-i", fragment_paths[0],
+                "-vn",  # no video
+                "-acodec", "flac",
+                "-ar", "16000",  # 16kHz sample rate (optimal for STT)
+                "-ac", "1",  # mono
+                "-y", output_path,
+            ]
+        else:
+            # Multiple fragments — use concat demuxer
+            concat_list = os.path.join(tmpdir, "concat.txt")
+            with open(concat_list, "w") as f:
+                for p in fragment_paths:
+                    f.write(f"file '{p}'\n")
+            cmd = [
+                "ffmpeg",
+                "-f", "concat", "-safe", "0", "-i", concat_list,
+                "-vn",
+                "-acodec", "flac",
+                "-ar", "16000",
+                "-ac", "1",
+                "-y", output_path,
+            ]
+
+        result = subprocess.run(
+            cmd, capture_output=True, timeout=300,
+        )
+        if result.returncode != 0:
+            stderr = result.stderr.decode("utf-8", errors="replace")[-500:]
+            raise RuntimeError(f"ffmpeg audio extraction failed: {stderr}")
+
+        with open(output_path, "rb") as f:
+            audio_bytes = f.read()
+
+        logger.info(
+            "Extracted audio: %d fragment(s), %.1f MB video → %.1f MB FLAC",
+            len(video_chunks),
+            sum(len(c) for c in video_chunks) / (1024 * 1024),
+            len(audio_bytes) / (1024 * 1024),
+        )
+        return audio_bytes, "audio/flac"
 
 SA_KEY_PATH = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "sa-key.json")
 
@@ -216,7 +289,8 @@ async def _transcribe_batch(
 
     # For batch recognize, we need to upload to GCS first
     bucket_name = f"{GCP_PROJECT_ID}-trellis-temp"
-    blob_name = f"recordings/temp_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.mp4"
+    ext = "flac" if "flac" in mime_type else "mp4"
+    blob_name = f"recordings/temp_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.{ext}"
 
     try:
         # Upload to GCS
@@ -404,6 +478,61 @@ def _build_diarized_transcript(words: list[dict]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Auto note generation
+# ---------------------------------------------------------------------------
+
+async def _auto_generate_note(
+    encounter_id: str,
+    transcript: str,
+    appointment: dict,
+    duration_sec: int | None = None,
+) -> str | None:
+    """Auto-generate a clinical note draft after transcription.
+
+    Returns the note ID if successful, None otherwise.
+    """
+    appointment_type = appointment.get("type", "individual")
+
+    # Get client name for the prompt
+    client_name = "the client"
+    client = await get_client(appointment["client_id"])
+    if client:
+        client_name = client.get("preferred_name") or (client.get("full_name") or "the client").split()[0]
+
+    # Get treatment plan for context
+    treatment_plan = await get_active_treatment_plan(appointment["client_id"])
+
+    session_date = str(appointment.get("scheduled_at", ""))
+
+    result = await generate_note(
+        transcript=transcript,
+        appointment_type=appointment_type,
+        client_name=client_name,
+        session_date=session_date,
+        duration_sec=duration_sec,
+        treatment_plan=treatment_plan,
+    )
+
+    note_format = result["format"]
+    content = result["content"]
+
+    # Insert as draft
+    pool = await get_pool()
+    row = await pool.fetchrow(
+        """
+        INSERT INTO clinical_notes (encounter_id, format, content, status, clinician_id)
+        VALUES ($1::uuid, $2, $3::jsonb, 'draft', $4)
+        RETURNING id
+        """,
+        encounter_id,
+        note_format,
+        content,
+        appointment.get("clinician_id"),
+    )
+    return str(row["id"])
+
+
+# ---------------------------------------------------------------------------
 # Core processing pipeline
 # ---------------------------------------------------------------------------
 
@@ -495,15 +624,8 @@ async def process_single_appointment(
         if not all_audio_chunks:
             raise RuntimeError("Failed to download any recording fragments")
 
-        # Concatenate audio fragments
-        if len(all_audio_chunks) == 1:
-            combined_audio = all_audio_chunks[0]
-        else:
-            combined_audio = b"".join(all_audio_chunks)
-            logger.info(
-                "Concatenated %d fragments (%d bytes total) for appointment %s",
-                len(all_audio_chunks), total_bytes, appt_id,
-            )
+        # Step 3b: Extract audio from MP4 video using ffmpeg
+        combined_audio, mime_type = _extract_audio_from_video(all_audio_chunks)
 
         # Step 4: Transcribe with diarization
         transcription = await transcribe_recording(
@@ -576,6 +698,20 @@ async def process_single_appointment(
                 else:
                     logger.warning("Failed to delete recording %s", fid)
 
+        # Step 9: Auto-generate clinical note draft
+        note_id = None
+        try:
+            note_id = await _auto_generate_note(
+                encounter_id=encounter_id,
+                transcript=transcript_text,
+                appointment=appointment,
+                duration_sec=transcription.get("duration_sec"),
+            )
+            if note_id:
+                logger.info("Auto-generated note %s for appointment %s", note_id, appt_id)
+        except Exception as e:
+            logger.error("Auto note generation failed for appointment %s: %s", appt_id, e)
+
         return {
             "status": "completed",
             "encounter_id": encounter_id,
@@ -585,6 +721,7 @@ async def process_single_appointment(
             "speaker_count": transcription.get("speaker_count", 0),
             "recording_fragment_count": len(recordings),
             "recordings_deleted": recordings_deleted,
+            "note_id": note_id,
         }
 
     except Exception as e:

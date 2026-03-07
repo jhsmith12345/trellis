@@ -61,7 +61,7 @@ function Field({
 const inputClass =
   "w-full px-4 py-2.5 rounded-xl border border-warm-200 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none transition-all text-warm-800 bg-white";
 
-export function IntakeForm() {
+export function IntakeForm({ intakeMode: _intakeMode = "standard" }: { intakeMode?: "standard" | "iop" }) {
   const { getIdToken } = useAuth();
   const { getProfile } = useClientApi();
   const [data, setData] = useState<IntakeData>(empty);

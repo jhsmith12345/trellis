@@ -25,7 +25,7 @@ from google.genai.types import GenerateContentConfig
 logger = logging.getLogger(__name__)
 
 # Model configuration
-MODEL_ID = os.getenv("GEMINI_NOTE_MODEL", "gemini-2.5-flash-preview-05-20")
+MODEL_ID = os.getenv("GEMINI_NOTE_MODEL", "gemini-2.5-flash")
 GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID", "trellis-mvp")
 GCP_REGION = os.getenv("GCP_REGION", "us-central1")
 

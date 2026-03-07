@@ -2634,20 +2634,22 @@ async def is_practice_initialized() -> dict:
 
 
 async def create_client_invitation(
-    practice_id: str, clinician_uid: str, email: str, token: str
+    practice_id: str, clinician_uid: str, email: str, token: str,
+    intake_mode: str = "standard",
 ) -> str:
     """Insert a client invitation. Returns the invitation UUID."""
     pool = await get_pool()
     row = await pool.fetchrow(
         """
-        INSERT INTO client_invitations (practice_id, clinician_firebase_uid, email, token)
-        VALUES ($1::uuid, $2, $3, $4)
+        INSERT INTO client_invitations (practice_id, clinician_firebase_uid, email, token, intake_mode)
+        VALUES ($1::uuid, $2, $3, $4, $5)
         RETURNING id
         """,
         practice_id,
         clinician_uid,
         email,
         token,
+        intake_mode,
     )
     return str(row["id"])
 
@@ -2659,6 +2661,7 @@ async def get_client_invitation_by_token(token: str) -> dict | None:
         """
         SELECT ci.id, ci.practice_id, ci.clinician_firebase_uid, ci.email,
                ci.token, ci.status, ci.expires_at, ci.created_at,
+               ci.intake_mode,
                p.name AS practice_name,
                c.clinician_name
         FROM client_invitations ci
@@ -2681,6 +2684,7 @@ async def get_client_invitation_by_token(token: str) -> dict | None:
         "token": row["token"],
         "practice_name": row["practice_name"],
         "clinician_name": row["clinician_name"],
+        "intake_mode": row["intake_mode"],
     }
 
 
@@ -2691,6 +2695,7 @@ async def get_client_invitation_by_email(email: str) -> dict | None:
         """
         SELECT ci.id, ci.practice_id, ci.clinician_firebase_uid, ci.email,
                ci.token, ci.status, ci.expires_at,
+               ci.intake_mode,
                p.name AS practice_name,
                c.clinician_name
         FROM client_invitations ci
@@ -2715,6 +2720,7 @@ async def get_client_invitation_by_email(email: str) -> dict | None:
         "token": row["token"],
         "practice_name": row["practice_name"],
         "clinician_name": row["clinician_name"],
+        "intake_mode": row["intake_mode"],
     }
 
 

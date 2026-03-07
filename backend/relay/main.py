@@ -109,6 +109,10 @@ async def websocket_session(ws: WebSocket):
             await ws.close(code=4002)
             return
 
+        intake_mode = auth_msg.get("intakeMode", "standard")
+        if intake_mode not in ("standard", "iop"):
+            intake_mode = "standard"
+
         # Ensure the authenticated user matches the claimed clientId
         if verified_user["uid"] != client_id:
             logger.warning(
@@ -197,6 +201,7 @@ async def websocket_session(ws: WebSocket):
             system_prompt = build_system_prompt(
                 context, practice_profile, client_insurance,
                 client_email=session_context.get("client_email"),
+                intake_mode=intake_mode,
             )
 
             logger.info("Starting Gemini Live connection (prompt: %d chars)", len(system_prompt))

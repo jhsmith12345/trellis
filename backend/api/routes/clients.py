@@ -121,6 +121,7 @@ class InsuranceSave(BaseModel):
 class ClientInviteRequest(BaseModel):
     email: str
     client_name: str | None = None
+    intake_mode: str = "standard"  # "standard" or "iop"
 
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
@@ -155,11 +156,13 @@ async def invite_client(
     practice_id = clinician["practice_id"]
     token = secrets.token_urlsafe(32)
 
+    intake_mode = body.intake_mode if body.intake_mode in ("standard", "iop") else "standard"
     invitation_id = await create_client_invitation(
         practice_id=practice_id,
         clinician_uid=user["uid"],
         email=body.email,
         token=token,
+        intake_mode=intake_mode,
     )
 
     # Send invitation email
