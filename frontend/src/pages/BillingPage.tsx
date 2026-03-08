@@ -98,7 +98,15 @@ export default function BillingPage() {
       const data = await api.get<SuperbillsResponse>(
         `/api/superbills${statusParam}`
       );
-      setSuperbills(data.superbills);
+      setSuperbills(
+        data.superbills.map((sb) => ({
+          ...sb,
+          diagnosis_codes:
+            typeof sb.diagnosis_codes === "string"
+              ? JSON.parse(sb.diagnosis_codes)
+              : sb.diagnosis_codes || [],
+        }))
+      );
       setSummary(data.summary);
     } catch (err) {
       console.error("Failed to load superbills:", err);

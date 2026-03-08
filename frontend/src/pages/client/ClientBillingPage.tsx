@@ -90,7 +90,15 @@ export default function ClientBillingPage() {
     async function load() {
       try {
         const data = await api.get<SuperbillsResponse>("/api/superbills/my");
-        setSuperbills(data.superbills || []);
+        setSuperbills(
+          (data.superbills || []).map((sb) => ({
+            ...sb,
+            diagnosis_codes:
+              typeof sb.diagnosis_codes === "string"
+                ? JSON.parse(sb.diagnosis_codes)
+                : sb.diagnosis_codes || [],
+          }))
+        );
         setBalance(data.client_balance || null);
       } catch (err: any) {
         console.error("Failed to load superbills:", err);

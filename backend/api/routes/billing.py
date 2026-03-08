@@ -122,7 +122,7 @@ def _superbill_to_dict(r) -> dict:
         "date_of_service": r["date_of_service"].isoformat() if r["date_of_service"] else None,
         "cpt_code": r["cpt_code"],
         "cpt_description": r["cpt_description"],
-        "diagnosis_codes": r["diagnosis_codes"],
+        "diagnosis_codes": json.loads(r["diagnosis_codes"]) if isinstance(r["diagnosis_codes"], str) else (r["diagnosis_codes"] or []),
         "fee": float(r["fee"]) if r["fee"] is not None else None,
         "amount_paid": float(r["amount_paid"]) if r["amount_paid"] is not None else 0,
         "status": r["status"],
