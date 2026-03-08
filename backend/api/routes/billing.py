@@ -45,6 +45,7 @@ from db import (
     get_practice,
     get_active_treatment_plan,
     get_practice_profile,
+    get_stored_signature,
     log_audit_event,
 )
 from superbill_pdf import generate_superbill_pdf, CPT_DESCRIPTIONS
@@ -267,6 +268,9 @@ async def generate_superbill_for_note(
         if clinician_rec:
             rendering_clinician = clinician_rec
 
+    # Get clinician's stored signature for the PDF
+    signature_data = await get_stored_signature(clinician_uid)
+
     # Generate PDF
     try:
         dos_formatted = dos_date.strftime("%B %d, %Y") if hasattr(dos_date, "strftime") else str(dos_date)
@@ -288,6 +292,7 @@ async def generate_superbill_for_note(
             status="generated",
             practice=practice,
             rendering_clinician=rendering_clinician,
+            signature_data=signature_data,
         )
     except Exception as e:
         logger.error("Superbill PDF generation failed for note %s: %s", note_id, e)

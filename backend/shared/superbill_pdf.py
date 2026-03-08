@@ -10,6 +10,8 @@ Generates a professional superbill PDF with:
   - Fee schedule and totals
   - Billing status
 """
+import base64
+import io
 import logging
 from datetime import datetime
 
@@ -129,6 +131,7 @@ def generate_superbill_pdf(
     status: str,
     practice: dict | None = None,
     rendering_clinician: dict | None = None,
+    signature_data: str | None = None,
 ) -> bytes:
     """Generate a professional superbill PDF.
 
@@ -377,11 +380,35 @@ def generate_superbill_pdf(
     # --- PROVIDER SIGNATURE LINE ---
     pdf.set_draw_color(180, 180, 180)
     pdf.line(10, pdf.get_y(), pdf.w - 10, pdf.get_y())
-    pdf.ln(8)
+    pdf.ln(5)
 
+    pdf.set_font("Helvetica", "B", 9)
+    pdf.cell(0, 5, "Provider Signature:", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(1)
+
+    if signature_data:
+        try:
+            if "," in signature_data:
+                b64 = signature_data.split(",", 1)[1]
+            else:
+                b64 = signature_data
+            img_bytes = base64.b64decode(b64)
+            img_stream = io.BytesIO(img_bytes)
+            img_stream.name = "signature.png"
+            pdf.image(img_stream, x=15, w=60, h=25)
+            pdf.ln(2)
+        except Exception as e:
+            logger.warning("Failed to embed signature image in superbill PDF: %s", e)
+            pdf.set_font("Helvetica", "", 9)
+            pdf.cell(0, 5, "____________________________", new_x="LMARGIN", new_y="NEXT")
+    else:
+        pdf.set_font("Helvetica", "", 9)
+        pdf.cell(0, 5, "____________________________", new_x="LMARGIN", new_y="NEXT")
+
+    signed_at = datetime.now().strftime("%B %d, %Y")
     pdf.set_font("Helvetica", "", 9)
-    pdf.cell(0, 5, "Provider Signature: ____________________________    Date: ____________________", new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(8)
+    pdf.cell(0, 5, f"Date: {signed_at}", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(5)
 
     # --- Footer note ---
     pdf.set_font("Helvetica", "I", 8)
