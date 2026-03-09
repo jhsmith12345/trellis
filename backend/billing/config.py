@@ -17,8 +17,8 @@ DATABASE_URL = os.getenv(
     f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}",
 )
 
-# CORS: EHR installations that can call the billing service
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
+# CORS: EHR installations + landing page that can call the billing service
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:4321,https://trellis.health").split(",")
 
 # Stedi (claim submission, ERA, eligibility)
 STEDI_API_KEY = os.getenv("STEDI_API_KEY", "")
@@ -27,8 +27,9 @@ STEDI_API_KEY = os.getenv("STEDI_API_KEY", "")
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 
-# Platform fee charged on patient payments (percentage)
-PLATFORM_FEE_PERCENT = float(os.getenv("PLATFORM_FEE_PERCENT", "2.9"))
+# Platform fee charged on patient payments (percentage, applied after Stripe fees)
+# Default 3.0% — can be overridden per-account via billing_accounts.platform_fee_percent
+PLATFORM_FEE_PERCENT = float(os.getenv("PLATFORM_FEE_PERCENT", "3.0"))
 
 # Telnyx SMS (centralized — therapists never touch this)
 TELNYX_API_KEY = os.getenv("TELNYX_API_KEY", "")

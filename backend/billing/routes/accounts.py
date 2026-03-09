@@ -31,6 +31,7 @@ class AccountResponse(BaseModel):
     stripe_connect_account_id: str | None = None
     stripe_onboarding_complete: bool = False
     settings: dict = Field(default_factory=dict)
+    permissions: dict = Field(default_factory=dict)
     status: str
     created_at: str
     updated_at: str
@@ -56,6 +57,7 @@ def _serialize_account(account: dict) -> dict:
         "stripe_connect_account_id": account.get("stripe_connect_account_id"),
         "stripe_onboarding_complete": account.get("stripe_onboarding_complete", False),
         "settings": account.get("settings") or {},
+        "permissions": account.get("permissions") or {},
         "status": account["status"],
         "created_at": account["created_at"].isoformat(),
         "updated_at": account["updated_at"].isoformat(),

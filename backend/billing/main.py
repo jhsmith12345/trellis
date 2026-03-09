@@ -26,6 +26,7 @@ from routes.payments import router as payments_router
 from routes.accounts import router as accounts_router
 from routes.communications import router as communications_router
 from routes.sms import router as sms_router
+from routes.signup import router as signup_router
 
 # ---------------------------------------------------------------------------
 # PHI-safe logging (same pattern as EHR API)
@@ -138,6 +139,7 @@ app.include_router(payments_router, prefix="/billing")
 app.include_router(accounts_router, prefix="/billing")
 app.include_router(communications_router, prefix="/billing")
 app.include_router(sms_router, prefix="/billing")
+app.include_router(signup_router, prefix="/billing")
 
 
 @app.on_event("startup")

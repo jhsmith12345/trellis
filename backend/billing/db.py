@@ -101,6 +101,34 @@ async def create_account(
     return dict(row)
 
 
+async def create_account_with_baa(
+    practice_name: str,
+    api_key_hash: str,
+    api_key_prefix: str,
+    permissions: dict,
+    signer_name: str,
+    signer_title: str,
+    signer_email: str,
+) -> dict:
+    """Create a new billing account with BAA signature and permissions."""
+    pool = await get_pool()
+    account_id = uuid.uuid4()
+    now = _now()
+    row = await pool.fetchrow(
+        """
+        INSERT INTO billing_accounts
+            (id, practice_name, api_key, api_key_prefix, permissions,
+             baa_signed_at, baa_signer_name, baa_signer_title, baa_signer_email,
+             status, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', $6, $6)
+        RETURNING *
+        """,
+        account_id, practice_name, api_key_hash, api_key_prefix, permissions,
+        now, signer_name, signer_title, signer_email,
+    )
+    return dict(row)
+
+
 async def update_account_settings(account_id: str, settings: dict) -> dict | None:
     """Update account settings JSONB."""
     pool = await get_pool()

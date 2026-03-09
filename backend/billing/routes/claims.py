@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from auth import require_api_key
+from auth import require_api_key, require_permission
 from db import create_claim, get_claim, update_claim_status, get_updates_since, create_event
 from integrations.stedi import stedi_client
 
@@ -175,7 +175,7 @@ def _serialize_event(event: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 @router.post("/submit", response_model=ClaimSubmitResponse)
-async def submit_claim(body: ClaimSubmitRequest, account: dict = Depends(require_api_key)):
+async def submit_claim(body: ClaimSubmitRequest, account: dict = Depends(require_permission("billing"))):
     """Accept claim data from EHR, validate, submit to Stedi, track in DB.
 
     Flow:
@@ -273,7 +273,7 @@ async def submit_claim(body: ClaimSubmitRequest, account: dict = Depends(require
 
 
 @router.get("/{claim_id}/status", response_model=ClaimStatusResponse)
-async def get_claim_status(claim_id: str, account: dict = Depends(require_api_key)):
+async def get_claim_status(claim_id: str, account: dict = Depends(require_permission("billing"))):
     """Return claim status and history.
 
     If the claim has a stedi_claim_id and hasn't been checked in the last
@@ -330,7 +330,7 @@ async def get_claim_status(claim_id: str, account: dict = Depends(require_api_ke
 
 
 @router.get("/updates", response_model=ClaimUpdatesResponse)
-async def get_claim_updates(since: str, account: dict = Depends(require_api_key)):
+async def get_claim_updates(since: str, account: dict = Depends(require_permission("billing"))):
     """Polling endpoint: return all billing events since a given timestamp.
 
     Query parameter ``since`` should be an ISO 8601 timestamp.

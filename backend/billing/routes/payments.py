@@ -4,7 +4,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
-from auth import require_api_key
+from auth import require_api_key, require_permission
 from config import PLATFORM_FEE_PERCENT
 from db import (
     create_payment, get_payment, get_payments_for_claim,
@@ -83,7 +83,7 @@ def _serialize_payment(payment: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 @router.post("/create-link", response_model=PaymentResponse)
-async def create_payment_link(body: CreatePaymentLinkRequest, account: dict = Depends(require_api_key)):
+async def create_payment_link(body: CreatePaymentLinkRequest, account: dict = Depends(require_permission("billing"))):
     """Create a Stripe payment link for a patient balance.
 
     If line_items are not provided, auto-derives them from the ERA
@@ -197,7 +197,7 @@ async def create_payment_link(body: CreatePaymentLinkRequest, account: dict = De
 
 
 @router.get("/{payment_id}", response_model=PaymentResponse)
-async def get_payment_detail(payment_id: str, account: dict = Depends(require_api_key)):
+async def get_payment_detail(payment_id: str, account: dict = Depends(require_permission("billing"))):
     """Return payment status."""
     payment = await get_payment(payment_id, str(account["id"]))
     if not payment:
@@ -206,7 +206,7 @@ async def get_payment_detail(payment_id: str, account: dict = Depends(require_ap
 
 
 @router.get("/claim/{claim_id}", response_model=PaymentListResponse)
-async def get_payments_for_claim_endpoint(claim_id: str, account: dict = Depends(require_api_key)):
+async def get_payments_for_claim_endpoint(claim_id: str, account: dict = Depends(require_permission("billing"))):
     """Return all payments for a claim."""
     payments = await get_payments_for_claim(claim_id, str(account["id"]))
     return {

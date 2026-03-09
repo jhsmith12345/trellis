@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from auth import require_api_key
+from auth import require_api_key, require_permission
 from db import (
     get_claim, get_denied_claims, get_denial_analytics,
     update_claim_status, update_claim_denial_fields,
@@ -234,7 +234,7 @@ def _serialize_denial_list_item(claim: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 @router.get("/analytics", response_model=DenialAnalyticsResponse)
-async def denial_analytics(account: dict = Depends(require_api_key)):
+async def denial_analytics(account: dict = Depends(require_permission("billing"))):
     """Return denial analytics for the account.
 
     Includes denial rate, breakdowns by category and payer, top reason codes,
@@ -246,7 +246,7 @@ async def denial_analytics(account: dict = Depends(require_api_key)):
 
 
 @router.get("/{claim_id}", response_model=DenialDetailResponse)
-async def get_denial_detail(claim_id: str, account: dict = Depends(require_api_key)):
+async def get_denial_detail(claim_id: str, account: dict = Depends(require_permission("billing"))):
     """Return detailed denial information for a specific claim.
 
     Includes denial codes with descriptions, category, suggestions,
@@ -323,7 +323,7 @@ async def list_denials(
     sort_order: str = Query("desc", description="Sort order: asc or desc"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    account: dict = Depends(require_api_key),
+    account: dict = Depends(require_permission("billing")),
 ):
     """List all denied claims for the account.
 
@@ -364,7 +364,7 @@ async def list_denials(
 async def resubmit_denied_claim(
     claim_id: str,
     body: ResubmitRequest,
-    account: dict = Depends(require_api_key),
+    account: dict = Depends(require_permission("billing")),
 ):
     """Correct and resubmit a denied claim.
 

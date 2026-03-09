@@ -11,7 +11,7 @@ from datetime import date, datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from auth import require_api_key
+from auth import require_api_key, require_permission
 from db import create_event
 from integrations.stedi import stedi_client, EligibilityResult
 
@@ -196,7 +196,7 @@ def _result_to_response(result: EligibilityResult, *, cached: bool = False) -> E
 @router.post("/verify", response_model=EligibilityResultResponse)
 async def verify_eligibility(
     body: EligibilityCheckRequest,
-    account: dict = Depends(require_api_key),
+    account: dict = Depends(require_permission("billing")),
 ):
     """Check patient insurance eligibility via 270/271 transaction.
 
