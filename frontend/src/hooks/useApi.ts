@@ -66,6 +66,14 @@ export function useApi() {
     [getIdToken],
   );
 
+  const del = useCallback(
+    async <T>(path: string): Promise<T> => {
+      const token = await getIdToken();
+      return request<T>(path, token, { method: "DELETE" });
+    },
+    [getIdToken],
+  );
+
   const getBlob = useCallback(
     async (path: string): Promise<Blob> => {
       const token = await getIdToken();
@@ -81,8 +89,28 @@ export function useApi() {
     [getIdToken],
   );
 
+  const postBlob = useCallback(
+    async (path: string, body: unknown): Promise<Blob> => {
+      const token = await getIdToken();
+      const res = await fetch(`${API_BASE}${path}`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const respBody = await res.json().catch(() => ({}));
+        throw new Error(respBody.detail || `Request failed: ${res.status}`);
+      }
+      return res.blob();
+    },
+    [getIdToken],
+  );
+
   return useMemo(
-    () => ({ get, put, post, patch, getBlob }),
-    [get, put, post, patch, getBlob],
+    () => ({ get, put, post, patch, del, getBlob, postBlob }),
+    [get, put, post, patch, del, getBlob, postBlob],
   );
 }

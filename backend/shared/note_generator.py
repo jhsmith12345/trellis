@@ -313,6 +313,191 @@ async def generate_note(
         raise
 
 
+DICTATION_TO_SOAP_PROMPT = """You are converting a clinician's freeform dictation into a structured SOAP progress note.
+
+The clinician has dictated their session notes informally. Your job is to organize this information
+into the proper SOAP format while preserving all clinical details. Do NOT fabricate information
+that is not present in the dictation.
+
+This is for CPT code {cpt_code} ({cpt_description}).
+
+CLINICIAN'S DICTATION:
+{dictation}
+
+SESSION METADATA:
+- Session Date: {session_date}
+- Session Duration: {duration_display}
+- Client Name: {client_name}
+
+{treatment_plan_context}
+
+Generate a structured SOAP note in the following JSON format:
+
+{{
+  "subjective": "Client's self-reported experience. Extract any client statements, mood reports, symptom changes, life events, stressors, sleep/appetite changes, and medication adherence from the dictation.",
+  "objective": "Clinician observations. Extract appearance, affect, behavior, engagement, speech patterns, psychomotor activity, interventions used, and treatment plan progress from the dictation.",
+  "assessment": "Clinical interpretation. Extract diagnostic status, treatment response, progress toward goals, risk assessment, and clinical formulation from the dictation.",
+  "plan": "Next steps. Extract planned next session focus, homework assignments, referrals, safety planning, and treatment modifications from the dictation."
+}}
+
+Return ONLY the JSON object, no additional text or markdown code fences."""
+
+DICTATION_TO_DAP_PROMPT = """You are converting a clinician's freeform dictation into a structured DAP progress note.
+
+The clinician has dictated their session notes informally. Your job is to organize this information
+into the proper DAP format while preserving all clinical details. Do NOT fabricate information
+that is not present in the dictation.
+
+This is for CPT code {cpt_code} ({cpt_description}).
+
+CLINICIAN'S DICTATION:
+{dictation}
+
+SESSION METADATA:
+- Session Date: {session_date}
+- Session Duration: {duration_display}
+- Client Name: {client_name}
+
+{treatment_plan_context}
+
+Generate a structured DAP note in the following JSON format:
+
+{{
+  "data": "Observable and reported information. Extract client statements, symptoms, clinician observations, interventions used, topics discussed, and homework review from the dictation.",
+  "assessment": "Clinical assessment. Extract diagnostic status, treatment response, progress toward goals, risk assessment, functional changes, and clinical formulation from the dictation.",
+  "plan": "Treatment plan and next steps. Extract next session plans, homework, referrals, coordination of care, and treatment modifications from the dictation."
+}}
+
+Return ONLY the JSON object, no additional text or markdown code fences."""
+
+DICTATION_TO_NARRATIVE_PROMPT = """You are converting a clinician's freeform dictation into a structured Biopsychosocial Assessment.
+
+The clinician has dictated their intake assessment notes informally. Your job is to organize this
+information into the proper biopsychosocial format while preserving all clinical details.
+Do NOT fabricate information that is not present in the dictation. For sections where no information
+was provided in the dictation, write "Not assessed" or "Not discussed."
+
+This is for CPT code 90791 (Psychiatric Diagnostic Evaluation).
+
+CLINICIAN'S DICTATION:
+{dictation}
+
+SESSION METADATA:
+- Session Date: {session_date}
+- Session Duration: {duration_display}
+- Client Name: {client_name}
+
+{treatment_plan_context}
+
+Generate a structured biopsychosocial assessment in the following JSON format:
+
+{{
+  "identifying_information": "Age, gender identity, referral source, presenting context.",
+  "presenting_problem": "Chief complaint, reason for seeking treatment, onset, duration, severity.",
+  "history_of_present_illness": "Chronological narrative of current symptoms, precipitating factors.",
+  "psychiatric_history": "Past diagnoses, hospitalizations, medication trials, previous therapy.",
+  "substance_use_history": "Current and past substance use or denial of use.",
+  "medical_history": "Current medical conditions, medications, allergies, sleep, appetite.",
+  "family_history": "Family psychiatric and substance use history, family structure.",
+  "social_developmental_history": "Education, employment, relationships, trauma history.",
+  "mental_status_examination": "Appearance, behavior, speech, mood, affect, thought process, cognition.",
+  "diagnostic_impressions": "Provisional DSM-5 diagnoses with ICD-10-CM codes.",
+  "risk_assessment": "SI/HI, self-harm, protective factors, risk level.",
+  "treatment_recommendations": "Recommended frequency, modality, therapeutic approach, referrals.",
+  "clinical_summary": "2-3 sentence integrative summary."
+}}
+
+Return ONLY the JSON object, no additional text or markdown code fences."""
+
+
+async def generate_note_from_dictation(
+    dictation: str,
+    note_format: str = "SOAP",
+    client_name: str = "the client",
+    session_date: str = "",
+    duration_sec: int | None = None,
+    treatment_plan: dict | None = None,
+) -> dict:
+    """Generate a structured clinical note from freeform clinician dictation.
+
+    Takes informal dictation text and uses Gemini to organize it into
+    the appropriate clinical note format (SOAP, DAP, or narrative).
+    """
+    client = _get_client()
+    duration_display = _format_duration(duration_sec)
+    treatment_plan_context = _build_treatment_plan_context(treatment_plan)
+
+    if note_format == "narrative":
+        chosen_format = "narrative"
+        prompt = DICTATION_TO_NARRATIVE_PROMPT.format(
+            dictation=dictation,
+            session_date=session_date or "Not recorded",
+            duration_display=duration_display,
+            client_name=client_name,
+            treatment_plan_context=treatment_plan_context,
+        )
+    elif note_format == "DAP":
+        chosen_format = "DAP"
+        cpt_code, cpt_description = CPT_MAP.get("individual", ("90834", "Individual Psychotherapy"))
+        prompt = DICTATION_TO_DAP_PROMPT.format(
+            dictation=dictation,
+            cpt_code=cpt_code,
+            cpt_description=cpt_description,
+            session_date=session_date or "Not recorded",
+            duration_display=duration_display,
+            client_name=client_name,
+            treatment_plan_context=treatment_plan_context,
+        )
+    else:
+        chosen_format = "SOAP"
+        cpt_code, cpt_description = CPT_MAP.get("individual", ("90834", "Individual Psychotherapy"))
+        prompt = DICTATION_TO_SOAP_PROMPT.format(
+            dictation=dictation,
+            cpt_code=cpt_code,
+            cpt_description=cpt_description,
+            session_date=session_date or "Not recorded",
+            duration_display=duration_display,
+            client_name=client_name,
+            treatment_plan_context=treatment_plan_context,
+        )
+
+    logger.info(
+        "Generating %s note from dictation (%d chars)",
+        chosen_format, len(dictation),
+    )
+
+    response = client.models.generate_content(
+        model=MODEL_ID,
+        contents=prompt,
+        config=GenerateContentConfig(
+            system_instruction=SYSTEM_INSTRUCTION,
+            temperature=0.3,
+            max_output_tokens=8192,
+            response_mime_type="application/json",
+        ),
+    )
+
+    raw_text = response.text
+    logger.info("Dictation note generation complete (%d chars response)", len(raw_text))
+
+    try:
+        content = json.loads(raw_text)
+    except json.JSONDecodeError:
+        import re
+        json_match = re.search(r'\{[\s\S]*\}', raw_text)
+        if json_match:
+            content = json.loads(json_match.group())
+        else:
+            logger.error("Failed to parse dictation note response as JSON")
+            content = {"raw_content": raw_text}
+
+    return {
+        "format": chosen_format,
+        "content": content,
+        "raw_text": raw_text,
+    }
+
+
 async def regenerate_note(
     transcript: str,
     appointment_type: str,

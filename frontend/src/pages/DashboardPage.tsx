@@ -48,6 +48,7 @@ export default function DashboardPage() {
   const [profile, setProfile] = useState<PracticeProfile | null>(null);
   const [unsignedNotes, setUnsignedNotes] = useState<UnsignedNote[]>([]);
   const [plansForReview, setPlansForReview] = useState<PlanReviewDue[]>([]);
+  const [credAlerts, setCredAlerts] = useState<{ expiring: { id: string; payer_name: string; expiration_date: string }[]; stale: { id: string; payer_name: string; application_submitted_at: string }[] }>({ expiring: [], stale: [] });
   const [clinicians, setClinicians] = useState<Clinician[]>([]);
   const [loading, setLoading] = useState(true);
   const isGroup = practiceType === "group";
@@ -65,7 +66,7 @@ export default function DashboardPage() {
         const end = new Date(start);
         end.setDate(end.getDate() + 7);
 
-        const [scheduleData, profileData, notesData, planReviewData, teamData] = await Promise.all([
+        const [scheduleData, profileData, notesData, planReviewData, teamData, credData] = await Promise.all([
           api.get<{ appointments: Appointment[] }>(
             `/api/schedule?start=${start.toISOString()}&end=${end.toISOString()}`
           ),
@@ -75,6 +76,7 @@ export default function DashboardPage() {
           isGroup && isOwner
             ? api.get<{ clinicians: Clinician[] }>("/api/practice/team").catch(() => ({ clinicians: [] }))
             : Promise.resolve({ clinicians: [] }),
+          api.get<{ expiring: typeof credAlerts.expiring; stale: typeof credAlerts.stale }>("/api/credentialing/alerts").catch(() => ({ expiring: [], stale: [] })),
         ]);
 
         setClinicians(teamData.clinicians.filter((c) => c.status === "active"));
@@ -86,6 +88,7 @@ export default function DashboardPage() {
         setProfile(profileData.exists ? profileData : null);
         setUnsignedNotes(notesData.notes);
         setPlansForReview(planReviewData.plans);
+        setCredAlerts(credData);
       } catch {
         // silently handle — dashboard still renders
       } finally {
@@ -366,6 +369,51 @@ export default function DashboardPage() {
                     <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-warm-300 shrink-0">
                       <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
                     </svg>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Credentialing Alerts */}
+          {!loading && (credAlerts.expiring.length > 0 || credAlerts.stale.length > 0) && (
+            <div className="bg-white rounded-2xl border border-warm-100 shadow-sm p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="font-semibold text-warm-800 flex items-center gap-2">
+                  <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5 text-teal-500">
+                    <path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  Credentialing
+                </h2>
+                <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-orange-100 text-orange-700 text-xs font-bold">
+                  {credAlerts.expiring.length + credAlerts.stale.length}
+                </span>
+              </div>
+              <div className="space-y-2">
+                {credAlerts.expiring.map((p) => (
+                  <Link
+                    key={p.id}
+                    to="/settings/credentialing"
+                    className="flex items-center gap-3 p-2 rounded-lg hover:bg-warm-50 transition-colors"
+                  >
+                    <div className="w-2 h-2 rounded-full shrink-0 bg-amber-400" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-warm-700 truncate">{p.payer_name}</p>
+                      <p className="text-xs text-amber-600">Expires {formatShortDate(p.expiration_date)}</p>
+                    </div>
+                  </Link>
+                ))}
+                {credAlerts.stale.map((p) => (
+                  <Link
+                    key={p.id}
+                    to="/settings/credentialing"
+                    className="flex items-center gap-3 p-2 rounded-lg hover:bg-warm-50 transition-colors"
+                  >
+                    <div className="w-2 h-2 rounded-full shrink-0 bg-orange-400" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-warm-700 truncate">{p.payer_name}</p>
+                      <p className="text-xs text-orange-600">Pending since {formatShortDate(p.application_submitted_at)}</p>
+                    </div>
                   </Link>
                 ))}
               </div>

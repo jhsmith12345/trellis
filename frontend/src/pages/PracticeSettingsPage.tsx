@@ -246,6 +246,12 @@ export default function PracticeSettingsPage() {
             </Link>
           )}
           <Link
+            to="/settings/credentialing"
+            className="text-sm font-medium text-warm-400 hover:text-warm-600 pb-2 px-1 transition-colors"
+          >
+            Credentialing
+          </Link>
+          <Link
             to="/settings/audit-log"
             className="text-sm font-medium text-warm-400 hover:text-warm-600 pb-2 px-1 transition-colors"
           >

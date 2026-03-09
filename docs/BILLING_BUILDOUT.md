@@ -280,6 +280,69 @@
 
 ---
 
+### Module 1F: Authorization Tracking
+**Priority:** High | **Depends on:** Nothing
+
+**Database:**
+- [ ] New table: `authorizations`
+  - `id` (UUID PK)
+  - `client_id` (TEXT, FK to clients)
+  - `clinician_id` (TEXT)
+  - `payer_name` (TEXT)
+  - `auth_number` (TEXT)
+  - `authorized_sessions` (INTEGER)
+  - `sessions_used` (INTEGER, default 0)
+  - `cpt_codes` (JSONB — array of approved CPT codes, nullable = all)
+  - `diagnosis_codes` (JSONB — array of approved ICD-10 codes)
+  - `start_date` (DATE)
+  - `end_date` (DATE)
+  - `status` (TEXT: 'active', 'expired', 'exhausted', 'pending')
+  - `notes` (TEXT — clinician notes about the auth)
+  - `created_at`, `updated_at` (TIMESTAMPTZ)
+
+**Backend:**
+- [ ] CRUD routes: `POST/GET/PUT /api/authorizations`
+- [ ] `GET /api/authorizations/client/{client_id}` — active auths for a client
+- [ ] Auto-increment `sessions_used` when superbill is generated
+- [ ] Warning logic:
+  - Warn when ≤3 sessions remaining
+  - Warn when auth expires within 14 days
+  - Warn/block superbill generation if no active auth and payer is known to require one
+- [ ] Populate CMS-1500 Box 23 with `auth_number` from active authorization
+- [ ] Include `auth_number` in 837P 2300 REF*G1 segment
+- [ ] `GET /api/authorizations/expiring` — auths expiring within 14 days (dashboard widget)
+
+**Frontend:**
+- [ ] Authorization section on client detail page
+  - Add/edit auth details (auth number, sessions, date range)
+  - Session counter: "12 of 20 sessions used" with progress bar
+  - Status badge (active/expiring soon/expired/exhausted)
+- [ ] Dashboard warnings for expiring/exhausted auths
+- [ ] Warning banner on superbill generation when auth is running low or missing
+
+**Files touched:**
+- New: `db/migrations/013_billing_fields.sql` (authorizations table + other billing columns)
+- Edit: `backend/api/routes/billing.py` (auth check on superbill generation, Box 23 population)
+- New: `backend/api/routes/authorizations.py`
+- Edit: `frontend/src/pages/ClientDetailPage.tsx` (auth section)
+- Edit: `frontend/src/pages/BillingPage.tsx` (auth warnings)
+
+---
+
+### Module 1G: Timely Filing Tracking
+**Priority:** Medium | **Depends on:** Module 1D
+
+**Backend:**
+- [ ] Add `filing_deadline_days` to clients table (per-payer, default 90)
+- [ ] Dashboard query: flag superbills in `generated` status approaching filing deadline
+- [ ] `GET /api/superbills/filing-deadlines` — claims at risk of timely filing expiration
+
+**Frontend:**
+- [ ] Warning badge on billing dashboard for claims approaching filing deadline
+- [ ] Color coding: yellow (≤30 days remaining), red (≤14 days remaining)
+
+---
+
 ## Phase 2: Paid Tier — Trellis Billing Service (Hosted Infrastructure)
 
 **Goal:** Fully automated revenue cycle — electronic claim submission, payment posting, patient collections. Clinician pays per-claim or subscription fee.
@@ -341,16 +404,22 @@
 ### Module 2D: Stedi Integration — Eligibility Verification (270/271)
 **Priority:** Medium | **Depends on:** Module 2A
 
+**Note:** Stedi does NOT support 278 (prior auth submission). Eligibility checks can determine IF auth is required, but the actual auth process remains manual (clinician calls payer or uses payer portal). Auth details are entered into the Phase 1 authorization tracking system (Module 1F).
+
 - [ ] Submit 270 eligibility inquiry via Stedi
+  - Use Service Type Codes: `30` (baseline), `MH`, `A6`, `CF` for behavioral health
+  - Note: most payers only support STC-level queries, not CPT-specific
 - [ ] Parse 271 eligibility response:
   - Active/inactive coverage
   - Plan details (copay, deductible, coinsurance)
-  - Deductible remaining
+  - Deductible remaining (individual/family)
   - Out-of-pocket max remaining
-  - Prior auth requirements
-  - Mental health specific benefits
+  - Prior auth requirements (`authOrCertIndicator`: Y/N/U)
+  - Mental health specific benefits and session limits
+  - Behavioral health carve-out payer detection (e.g., Magellan, Optum BH)
 - [ ] Cache results (valid for session/day)
 - [ ] Surface via EHR API for frontend display
+- [ ] If `authOrCertIndicator = Y`, prompt clinician to obtain auth and enter in Module 1F
 
 ---
 
@@ -404,22 +473,39 @@
 
 ## Phase 2 Frontend (In Open-Source EHR Repo)
 
-### Module 2H: Billing Service Onboarding
+### Module 2H: Billing Service Connection & Discovery
 **Priority:** High | **Depends on:** Module 2A, 2E
 
-**Frontend:**
+**Go-to-market approach:** Sales-led, not self-serve. Most customers buy Trellis as an installation package (install + billing + support). Billing service is activated by the Trellis team during setup or via sales call. Self-serve activation deferred until customer patterns are clear.
+
+**In-app discovery (lead generation):**
+- [ ] Billing page: tasteful card/banner — "Submit claims directly from Trellis" → links to external Trellis billing landing page
+- [ ] Card should be unobtrusive, not modal/popup. Always visible when billing service is not connected.
+
+**Settings page (connection management):**
 - [ ] New page: `frontend/src/pages/BillingServicePage.tsx`
   - Route: `/settings/billing-service`
-  - "Activate Trellis Billing" CTA when not connected
-  - Steps: 1) Create account → 2) Connect Stripe → 3) Configure preferences
-  - Status dashboard when connected (account status, payout info)
-- [ ] Stripe Connect onboarding embed (Express or hosted)
+  - **Not connected state:** "Trellis Billing" description + "Learn More" link to landing page + "Have an API key?" input field for teams doing self-setup after purchase
+  - **Connected state:** Connection status (healthy/error), Stripe account status, payout info, billing service preferences (auto-submit claims, payment reminder settings)
 - [ ] Billing service settings (auto-submit claims, payment reminders, etc.)
 
 **Backend (EHR side):**
 - [ ] Store billing service API key in practice settings
 - [ ] Store Stripe Connect account ID
 - [ ] Migration: Add `billing_service_*` columns to practices table
+- [ ] Health check endpoint: verify billing service API key is valid and Stripe is connected
+
+**External (not in EHR repo):**
+- [ ] Trellis billing landing page (marketing site)
+  - Value prop: stop downloading files, submit claims in one click, auto-post payments
+  - Package tiers: installation + billing + support
+  - Contact sales / book a demo CTA
+- [ ] Stripe Connect onboarding handled during sales/setup process (your team walks clinician through KYC or does it on a call)
+
+**Deferred (build later when demand is clear):**
+- Self-serve signup wizard (in-app Stripe Connect embed, automated provisioning)
+- Usage-based billing via Stripe
+- Automated trial period
 
 ---
 
@@ -564,30 +650,46 @@ Phase 2 (Paid Tier):
 
 | Migration # | Module | Description |
 |-------------|--------|-------------|
-| 013 | 1A, 1D | `place_of_service`, `date_submitted`, `date_paid` on superbills; `sex` on clients |
+| 013 | 1A, 1D | `place_of_service`, `modifiers`, `date_submitted`, `date_paid` on superbills; `sex`, `payer_id`, `default_modality`, `secondary_payer_name`, `secondary_payer_id`, `secondary_member_id`, `secondary_group_number` on clients; `modality` on appointments |
 | 014 | 2H | `billing_service_api_key`, `stripe_connect_account_id` on practices |
 
 ---
 
+## Resolved Decisions
+
+1. **Payer ID mapping** → Store `payer_id` on clients table alongside `payer_name`. Clinician enters once per client, auto-populates onto claims. No lookup table in free tier; paid tier resolves via Stedi automatically.
+
+2. **Superbill = Claim?** → Yes. Add fields to existing superbills table. No separate claims table.
+
+3. **Place of service detection** → Explicit `modality` field (`telehealth` | `in_office`). Default set on client record, override per appointment. Both session types use Meet (in-office uses bluetooth mic). POS and modifier 95 derived from modality, not Meet link presence.
+
+4. **CPT modifiers** → Include in Phase 1. Auto-set modifier `95` when modality=telehealth. `modifiers` JSONB column on superbills.
+
+5. **patient_relationship_to_insured** → Hardcode "Self" on CMS-1500. No column needed.
+
+6. **sex field** → Add to clients table. Collected during intake (both forms and voice pathways). Editable on client profile.
+
 ## Open Decisions
 
-1. **Payer ID mapping** — How to map insurance company names to electronic payer IDs for 837P?
-   - Option A: Manual entry on claim review screen (simplest)
-   - Option B: Payer lookup table with Stedi's payer directory
-   - Option C: Both (lookup with manual override)
+1. **Billing service hosting** → Same GCP project (`trellis-mvp`) during dev. Separate project when moving to production.
 
-2. **Superbill = Claim?** — Should superbills BE claims (add fields to existing table) or should claims be a separate entity wrapping superbills?
-   - Current leaning: Superbills ARE the claim record. Add fields as needed. Avoid table proliferation.
-
-3. **Place of service detection** — Derive from appointment (has Meet link = telehealth) or let clinician set it?
-   - Recommendation: Auto-detect from Meet link presence, allow override on claim review.
-
-4. **CPT modifiers** — Support in Phase 1 or defer?
-   - Recommendation: Add `modifiers` JSONB field to superbills in Phase 1, but only build modifier selection UI when needed.
-
-5. **Billing service hosting** — Where to host the paid tier service?
-   - Options: Same GCP project, separate GCP project, separate cloud provider
-   - Recommendation: Separate GCP project for clean separation of billing service from EHR.
-
-6. **Pricing model** — Per-claim fee, monthly subscription, or hybrid?
+2. **Pricing model** — Per-claim fee, monthly subscription, or hybrid?
    - TBD — business decision, doesn't affect technical build.
+
+3. **Secondary insurance** → Support in Phase 1. Mirror primary fields (`secondary_payer_name`, `secondary_payer_id`, `secondary_member_id`, `secondary_group_number`) on clients table. CMS-1500 Box 9, 837P 2320 loop.
+
+---
+
+## Related Buildout: In-Office Meet Bot
+
+**Separate from billing, but dependency for modality/POS.**
+
+Both telehealth and in-office sessions run through Google Meet. In-office sessions use a bluetooth mic connected to the clinician's phone. A bot needs to "sit in" the Meet as a second participant to keep the session alive for the full hour (prevents Meet from ending if only one device is connected). Recording and transcription are handled by Meet itself — the bot doesn't touch audio.
+
+**Resolution:** No bot needed. Add onboarding setup step instructing clinician to disable "Leave empty calls" in Google Meet Settings > General. This allows solo recording for up to 8 hours on Business Standard.
+
+**Remaining design:**
+- [ ] Add "Disable Leave empty calls" step to clinician onboarding/setup flow
+- [ ] Pre-configuration: clinician sets up bluetooth device, default modality per client
+- [ ] Easy last-minute modality switch (client shows up in-office instead of telehealth, or vice versa)
+- [ ] How modality switch flows to the appointment record and downstream to billing

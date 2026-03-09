@@ -85,6 +85,7 @@ class ProfileUpdate(BaseModel):
     full_name: str | None = None
     preferred_name: str | None = None
     pronouns: str | None = None
+    sex: str | None = None
     date_of_birth: str | None = None
     phone: str | None = None
     address_line1: str | None = None
@@ -95,6 +96,13 @@ class ProfileUpdate(BaseModel):
     emergency_contact_name: str | None = None
     emergency_contact_phone: str | None = None
     emergency_contact_relationship: str | None = None
+    payer_id: str | None = None
+    default_modality: str | None = None
+    secondary_payer_name: str | None = None
+    secondary_payer_id: str | None = None
+    secondary_member_id: str | None = None
+    secondary_group_number: str | None = None
+    filing_deadline_days: int | None = None
 
 
 class InsuranceCardUpload(BaseModel):
@@ -417,6 +425,65 @@ async def assign_client_clinician(
     )
 
     return {"status": "assigned", "clinician_id": clinician_id}
+
+
+class ClinicianClientUpdate(BaseModel):
+    """Fields a clinician can edit on a client profile."""
+    full_name: str | None = None
+    preferred_name: str | None = None
+    pronouns: str | None = None
+    sex: str | None = None
+    date_of_birth: str | None = None
+    phone: str | None = None
+    address_line1: str | None = None
+    address_line2: str | None = None
+    address_city: str | None = None
+    address_state: str | None = None
+    address_zip: str | None = None
+    emergency_contact_name: str | None = None
+    emergency_contact_phone: str | None = None
+    emergency_contact_relationship: str | None = None
+    payer_name: str | None = None
+    payer_id: str | None = None
+    member_id: str | None = None
+    group_number: str | None = None
+    default_modality: str | None = None
+    secondary_payer_name: str | None = None
+    secondary_payer_id: str | None = None
+    secondary_member_id: str | None = None
+    secondary_group_number: str | None = None
+    filing_deadline_days: int | None = None
+
+
+@router.patch("/clients/{client_id}")
+async def update_client_profile(
+    client_id: str,
+    payload: ClinicianClientUpdate,
+    request: Request,
+    user: dict = Depends(require_practice_member()),
+):
+    """Update a client's profile fields. Clinician only."""
+    client = await get_client_by_id(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+
+    fields = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not fields:
+        return {"status": "no_changes"}
+
+    await update_client(client["firebase_uid"], **fields)
+
+    await log_audit_event(
+        user_id=user["uid"],
+        action="updated",
+        resource_type="client",
+        resource_id=client_id,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        metadata={"fields": list(fields.keys())},
+    )
+
+    return {"status": "updated", "fields": list(fields.keys())}
 
 
 @router.get("/clients/{client_id}/encounters")

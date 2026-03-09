@@ -1,4 +1,4 @@
-.PHONY: dev dev-frontend dev-api dev-relay install test-build test-backend test-e2e test-all
+.PHONY: dev dev-frontend dev-api dev-relay dev-billing dev-landing install test-build test-backend test-e2e test-all
 
 # Run Vite dev server
 dev-frontend:
@@ -12,16 +12,25 @@ dev-api:
 dev-relay:
 	cd backend/relay && uvicorn main:app --reload --port 8081
 
-# Run all three services (requires terminal multiplexing)
+# Run landing site dev server
+dev-landing:
+	cd landing && npm run dev
+
+# Run billing service with uvicorn (auto-reload)
+dev-billing:
+	cd backend/billing && uvicorn main:app --reload --port 8082
+
+# Run all four services (requires terminal multiplexing)
 dev:
 	@echo "Starting all services..."
-	@make dev-api & make dev-relay & make dev-frontend
+	@make dev-api & make dev-relay & make dev-billing & make dev-frontend
 
 # Install all dependencies
 install:
 	cd frontend && npm install
 	cd backend/api && pip install -r requirements.txt
 	cd backend/relay && pip install -r requirements.txt
+	cd backend/billing && pip install -r requirements.txt
 
 # Verify all services compile/build without errors
 test-build:

@@ -52,6 +52,7 @@ from db import (
     get_unsigned_docs_count,
     get_appointments_with_unsigned_docs,
     get_practice_profile,
+    get_client,
 )
 from gcal import create_calendar_event, update_calendar_event, delete_calendar_event, strip_conference_data
 from mailer import send_email
@@ -117,6 +118,7 @@ class BookAppointmentRequest(BaseModel):
     scheduled_at: str  # ISO datetime
     duration_minutes: int = 60
     cadence: str | None = None  # "weekly" | "biweekly" | "monthly" — None for single appointment
+    modality: str | None = None  # "telehealth" | "in_office" — None to auto-detect from client default
 
 
 class UpdateAppointmentRequest(BaseModel):
@@ -305,6 +307,18 @@ async def book_appointment(
         count = 4
     recurrence_id = str(uuid.uuid4()) if count > 1 else None
 
+    # Resolve modality: explicit > client default > telehealth
+    modality = body.modality
+    if not modality:
+        try:
+            client_record = await get_client(body.client_id)
+            if client_record:
+                modality = client_record.get("default_modality") or "telehealth"
+        except Exception:
+            pass
+    if modality not in ("telehealth", "in_office"):
+        modality = "telehealth"
+
     scheduled = datetime.fromisoformat(body.scheduled_at)
     appointments = []
     type_info = APPOINTMENT_TYPES[body.type]
@@ -342,6 +356,7 @@ async def book_appointment(
             calendar_event_id=event_id,
             recurrence_id=recurrence_id,
             cadence=body.cadence,
+            modality=modality,
         )
         appointments.append({
             "id": appt_id,
@@ -349,6 +364,7 @@ async def book_appointment(
             "meet_link": meet_link,
             "type": body.type,
             "cpt": type_info["cpt"],
+            "modality": modality,
         })
 
     await log_audit_event(

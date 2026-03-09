@@ -262,6 +262,83 @@ def _practice_to_dict(r) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Practice Billing Settings
+# ---------------------------------------------------------------------------
+
+async def get_practice_billing_settings(practice_id: str) -> dict | None:
+    """Get billing service settings for a practice."""
+    pool = await get_pool()
+    r = await pool.fetchrow(
+        """
+        SELECT billing_api_key, billing_service_url,
+               billing_auto_submit, billing_last_poll_at
+        FROM practices WHERE id = $1::uuid
+        """,
+        practice_id,
+    )
+    if not r:
+        return None
+    return {
+        "billing_api_key": r["billing_api_key"],
+        "billing_service_url": r["billing_service_url"],
+        "billing_auto_submit": r["billing_auto_submit"] or False,
+        "billing_last_poll_at": r["billing_last_poll_at"].isoformat() if r["billing_last_poll_at"] else None,
+    }
+
+
+async def update_practice_billing_settings(practice_id: str, **fields) -> dict | None:
+    """Update billing service settings on a practice.
+
+    Allowed fields: billing_api_key, billing_service_url,
+    billing_auto_submit, billing_last_poll_at.
+    """
+    pool = await get_pool()
+    allowed = {
+        "billing_api_key", "billing_service_url",
+        "billing_auto_submit", "billing_last_poll_at",
+    }
+    updates = {k: v for k, v in fields.items() if k in allowed}
+    if not updates:
+        return await get_practice_billing_settings(practice_id)
+
+    sets = []
+    vals = []
+    idx = 1
+    for key, val in updates.items():
+        sets.append(f"{key} = ${idx}")
+        vals.append(val)
+        idx += 1
+    vals.append(practice_id)
+    query = f"UPDATE practices SET {', '.join(sets)} WHERE id = ${idx}::uuid"
+    await pool.execute(query, *vals)
+    return await get_practice_billing_settings(practice_id)
+
+
+async def get_practices_with_billing() -> list[dict]:
+    """Get all practices that have billing service configured (for polling)."""
+    pool = await get_pool()
+    rows = await pool.fetch(
+        """
+        SELECT id, billing_api_key, billing_service_url,
+               billing_auto_submit, billing_last_poll_at
+        FROM practices
+        WHERE billing_api_key IS NOT NULL
+          AND billing_service_url IS NOT NULL
+        """
+    )
+    results = []
+    for r in rows:
+        results.append({
+            "id": str(r["id"]),
+            "billing_api_key": r["billing_api_key"],
+            "billing_service_url": r["billing_service_url"],
+            "billing_auto_submit": r["billing_auto_submit"] or False,
+            "billing_last_poll_at": r["billing_last_poll_at"].isoformat() if r["billing_last_poll_at"] else None,
+        })
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Clinicians
 # ---------------------------------------------------------------------------
 
@@ -1099,6 +1176,7 @@ async def create_appointment(
     calendar_event_id: str | None = None,
     recurrence_id: str | None = None,
     cadence: str = "weekly",
+    modality: str = "telehealth",
 ) -> str:
     """Create an appointment and return its UUID."""
     from datetime import datetime as _dt
@@ -1109,8 +1187,8 @@ async def create_appointment(
         INSERT INTO appointments
             (client_id, client_email, client_name, clinician_id, clinician_email,
              type, scheduled_at, duration_minutes, created_by,
-             meet_link, calendar_event_id, recurrence_id, cadence)
-        VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz, $8, $9, $10, $11, $12::uuid, $13)
+             meet_link, calendar_event_id, recurrence_id, cadence, modality)
+        VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz, $8, $9, $10, $11, $12::uuid, $13, $14)
         RETURNING id
         """,
         client_id,
@@ -1126,6 +1204,7 @@ async def create_appointment(
         calendar_event_id,
         recurrence_id,
         cadence,
+        modality,
     )
     return str(row["id"])
 
@@ -1314,6 +1393,9 @@ _CLIENT_FIELDS = {
     "emergency_contact_relationship", "payer_name", "member_id", "group_number",
     "insurance_data", "intake_completed_at", "documents_completed_at",
     "status", "discharged_at", "primary_clinician_id",
+    "sex", "payer_id", "default_modality",
+    "secondary_payer_name", "secondary_payer_id", "secondary_member_id",
+    "secondary_group_number", "filing_deadline_days",
 }
 
 
@@ -2105,6 +2187,14 @@ def _client_full_to_dict(r) -> dict:
         "payer_name": r["payer_name"],
         "member_id": r["member_id"],
         "group_number": r["group_number"],
+        "payer_id": r.get("payer_id"),
+        "sex": r.get("sex"),
+        "default_modality": r.get("default_modality", "telehealth"),
+        "secondary_payer_name": r.get("secondary_payer_name"),
+        "secondary_payer_id": r.get("secondary_payer_id"),
+        "secondary_member_id": r.get("secondary_member_id"),
+        "secondary_group_number": r.get("secondary_group_number"),
+        "filing_deadline_days": r.get("filing_deadline_days", 90),
         "insurance_data": r["insurance_data"],
         "status": r["status"],
         "intake_completed_at": r["intake_completed_at"].isoformat() if r["intake_completed_at"] else None,
@@ -2598,6 +2688,266 @@ async def get_unsigned_notes_for_client(client_id: str) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Authorizations
+# ---------------------------------------------------------------------------
+
+def _authorization_to_dict(r) -> dict:
+    """Convert an authorization database record to a response dict."""
+    return {
+        "id": str(r["id"]),
+        "client_id": r["client_id"],
+        "clinician_id": r["clinician_id"],
+        "payer_name": r["payer_name"],
+        "auth_number": r["auth_number"],
+        "authorized_sessions": r["authorized_sessions"],
+        "sessions_used": r["sessions_used"],
+        "cpt_codes": r["cpt_codes"],
+        "diagnosis_codes": r["diagnosis_codes"],
+        "start_date": r["start_date"].isoformat() if r["start_date"] else None,
+        "end_date": r["end_date"].isoformat() if r["end_date"] else None,
+        "status": r["status"],
+        "notes": r["notes"],
+        "created_at": r["created_at"].isoformat(),
+        "updated_at": r["updated_at"].isoformat(),
+    }
+
+
+async def create_authorization(
+    client_id: str,
+    clinician_id: str,
+    payer_name: str,
+    auth_number: str | None = None,
+    authorized_sessions: int | None = None,
+    cpt_codes: list | None = None,
+    diagnosis_codes: list | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    notes: str | None = None,
+) -> dict:
+    """Create an authorization and return the full record."""
+    from datetime import date as _date
+    pool = await get_pool()
+    _start = _date.fromisoformat(start_date) if isinstance(start_date, str) else start_date
+    _end = _date.fromisoformat(end_date) if isinstance(end_date, str) else end_date
+    row = await pool.fetchrow(
+        """
+        INSERT INTO authorizations
+            (client_id, clinician_id, payer_name, auth_number, authorized_sessions,
+             cpt_codes, diagnosis_codes, start_date, end_date, notes)
+        VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::date, $9::date, $10)
+        RETURNING *
+        """,
+        client_id,
+        clinician_id,
+        payer_name,
+        auth_number,
+        authorized_sessions,
+        __to_json(cpt_codes),
+        __to_json(diagnosis_codes),
+        _start,
+        _end,
+        notes,
+    )
+    return _authorization_to_dict(row)
+
+
+async def get_authorization(auth_id: str) -> dict | None:
+    """Fetch a single authorization by ID."""
+    pool = await get_pool()
+    r = await pool.fetchrow(
+        "SELECT * FROM authorizations WHERE id = $1::uuid", auth_id
+    )
+    if not r:
+        return None
+    return _authorization_to_dict(r)
+
+
+async def get_client_authorizations(client_id: str) -> list[dict]:
+    """Fetch all authorizations for a client, newest first."""
+    pool = await get_pool()
+    rows = await pool.fetch(
+        """
+        SELECT * FROM authorizations
+        WHERE client_id = $1
+        ORDER BY created_at DESC
+        """,
+        client_id,
+    )
+    return [_authorization_to_dict(r) for r in rows]
+
+
+async def get_active_authorization(
+    client_id: str, cpt_code: str | None = None
+) -> dict | None:
+    """Find an active authorization for a client, optionally filtered by CPT code.
+
+    Prefers auths that match the CPT code, then any active auth.
+    Only returns auths where sessions_used < authorized_sessions (or unlimited).
+    """
+    pool = await get_pool()
+    from datetime import date as _date
+    today = _date.today()
+
+    # Try to find one matching the CPT code first
+    if cpt_code:
+        row = await pool.fetchrow(
+            """
+            SELECT * FROM authorizations
+            WHERE client_id = $1
+              AND status = 'active'
+              AND start_date <= $2
+              AND end_date >= $2
+              AND (cpt_codes IS NULL OR cpt_codes @> $3::jsonb)
+              AND (authorized_sessions IS NULL OR sessions_used < authorized_sessions)
+            ORDER BY end_date ASC
+            LIMIT 1
+            """,
+            client_id,
+            today,
+            __to_json([cpt_code]),
+        )
+        if row:
+            return _authorization_to_dict(row)
+
+    # Fallback: any active auth for the client
+    row = await pool.fetchrow(
+        """
+        SELECT * FROM authorizations
+        WHERE client_id = $1
+          AND status = 'active'
+          AND start_date <= $2
+          AND end_date >= $2
+          AND (authorized_sessions IS NULL OR sessions_used < authorized_sessions)
+        ORDER BY end_date ASC
+        LIMIT 1
+        """,
+        client_id,
+        today,
+    )
+    if not row:
+        return None
+    return _authorization_to_dict(row)
+
+
+async def update_authorization(auth_id: str, **fields) -> dict | None:
+    """Update fields on an authorization. Returns the updated record."""
+    from datetime import date as _date
+    pool = await get_pool()
+    allowed = {
+        "payer_name", "auth_number", "authorized_sessions", "cpt_codes",
+        "diagnosis_codes", "start_date", "end_date", "status", "notes",
+    }
+    updates = {k: v for k, v in fields.items() if k in allowed}
+    if not updates:
+        return await get_authorization(auth_id)
+
+    sets = []
+    vals = []
+    idx = 1
+    for key, val in updates.items():
+        if key in ("cpt_codes", "diagnosis_codes"):
+            sets.append(f"{key} = ${idx}::jsonb")
+            vals.append(__to_json(val))
+        elif key in ("start_date", "end_date"):
+            sets.append(f"{key} = ${idx}::date")
+            vals.append(_date.fromisoformat(val) if isinstance(val, str) else val)
+        else:
+            sets.append(f"{key} = ${idx}")
+            vals.append(val)
+        idx += 1
+
+    sets.append("updated_at = now()")
+    vals.append(auth_id)
+    query = f"UPDATE authorizations SET {', '.join(sets)} WHERE id = ${idx}::uuid RETURNING *"
+    row = await pool.fetchrow(query, *vals)
+    if not row:
+        return None
+    return _authorization_to_dict(row)
+
+
+async def increment_auth_sessions_used(auth_id: str) -> dict | None:
+    """Atomically increment sessions_used. Sets status='exhausted' if limit reached."""
+    pool = await get_pool()
+    row = await pool.fetchrow(
+        """
+        UPDATE authorizations
+        SET sessions_used = sessions_used + 1,
+            status = CASE
+                WHEN authorized_sessions IS NOT NULL
+                     AND sessions_used + 1 >= authorized_sessions
+                THEN 'exhausted'
+                ELSE status
+            END,
+            updated_at = now()
+        WHERE id = $1::uuid
+        RETURNING *
+        """,
+        auth_id,
+    )
+    if not row:
+        return None
+    return _authorization_to_dict(row)
+
+
+async def delete_authorization(auth_id: str) -> bool:
+    """Delete an authorization. Returns True if deleted."""
+    pool = await get_pool()
+    result = await pool.execute(
+        "DELETE FROM authorizations WHERE id = $1::uuid", auth_id
+    )
+    return result == "DELETE 1"
+
+
+async def get_expiring_authorizations(days: int = 14) -> list[dict]:
+    """Get active authorizations expiring within N days."""
+    pool = await get_pool()
+    rows = await pool.fetch(
+        """
+        SELECT a.*, c.full_name AS client_name, c.id AS client_uuid
+        FROM authorizations a
+        LEFT JOIN clients c ON c.firebase_uid = a.client_id
+        WHERE a.status = 'active'
+          AND a.end_date BETWEEN CURRENT_DATE AND CURRENT_DATE + $1 * INTERVAL '1 day'
+        ORDER BY a.end_date ASC
+        """,
+        days,
+    )
+    results = []
+    for r in rows:
+        d = _authorization_to_dict(r)
+        d["client_name"] = r["client_name"]
+        d["client_uuid"] = str(r["client_uuid"]) if r["client_uuid"] else None
+        results.append(d)
+    return results
+
+
+async def get_low_session_authorizations(remaining: int = 3) -> list[dict]:
+    """Get active authorizations with N or fewer sessions remaining."""
+    pool = await get_pool()
+    rows = await pool.fetch(
+        """
+        SELECT a.*, c.full_name AS client_name, c.id AS client_uuid
+        FROM authorizations a
+        LEFT JOIN clients c ON c.firebase_uid = a.client_id
+        WHERE a.status = 'active'
+          AND a.authorized_sessions IS NOT NULL
+          AND (a.authorized_sessions - a.sessions_used) <= $1
+          AND (a.authorized_sessions - a.sessions_used) > 0
+          AND a.end_date >= CURRENT_DATE
+        ORDER BY (a.authorized_sessions - a.sessions_used) ASC
+        """,
+        remaining,
+    )
+    results = []
+    for r in rows:
+        d = _authorization_to_dict(r)
+        d["client_name"] = r["client_name"]
+        d["client_uuid"] = str(r["client_uuid"]) if r["client_uuid"] else None
+        results.append(d)
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -2757,6 +3107,437 @@ async def get_active_practice_clinicians(practice_id: str) -> list[dict]:
             "credentials": r["credentials"],
             "specialties": r["specialties"],
             "bio": r["bio"],
+        }
+        for r in rows
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Credentialing — Payer Enrollments
+# ---------------------------------------------------------------------------
+
+def _cred_payer_to_dict(r) -> dict:
+    return {
+        "id": str(r["id"]),
+        "practice_id": str(r["practice_id"]),
+        "clinician_id": r["clinician_id"],
+        "payer_name": r["payer_name"],
+        "payer_id": r["payer_id"],
+        "status": r["status"],
+        "provider_relations_phone": r["provider_relations_phone"],
+        "provider_relations_email": r["provider_relations_email"],
+        "provider_relations_fax": r["provider_relations_fax"],
+        "portal_url": r["portal_url"],
+        "application_submitted_at": r["application_submitted_at"].isoformat() if r["application_submitted_at"] else None,
+        "credentialed_at": r["credentialed_at"].isoformat() if r["credentialed_at"] else None,
+        "effective_date": r["effective_date"].isoformat() if r["effective_date"] else None,
+        "expiration_date": r["expiration_date"].isoformat() if r["expiration_date"] else None,
+        "denied_at": r["denied_at"].isoformat() if r["denied_at"] else None,
+        "denial_reason": r["denial_reason"],
+        "recredential_reminder_days": r["recredential_reminder_days"],
+        "required_documents": r["required_documents"],
+        "contracted_rates": r["contracted_rates"],
+        "notes": r["notes"],
+        "created_at": r["created_at"].isoformat(),
+        "updated_at": r["updated_at"].isoformat(),
+    }
+
+
+async def create_credentialing_payer(
+    practice_id: str,
+    clinician_id: str,
+    payer_name: str,
+    **kwargs,
+) -> dict:
+    """Create a credentialing payer enrollment record."""
+    pool = await get_pool()
+
+    # Build optional columns
+    extra_cols = ""
+    extra_vals = ""
+    params = [practice_id, clinician_id, payer_name]
+    idx = 4
+
+    allowed = (
+        "payer_id", "status", "provider_relations_phone", "provider_relations_email",
+        "provider_relations_fax", "portal_url", "effective_date", "expiration_date",
+        "recredential_reminder_days", "required_documents", "contracted_rates", "notes",
+        "denial_reason",
+    )
+    for key in allowed:
+        if key in kwargs and kwargs[key] is not None:
+            extra_cols += f", {key}"
+            val = kwargs[key]
+            if key in ("effective_date", "expiration_date"):
+                extra_vals += f", ${idx}::date"
+            elif key in ("required_documents", "contracted_rates"):
+                extra_vals += f", ${idx}::jsonb"
+                val = __to_json(val)
+            else:
+                extra_vals += f", ${idx}"
+            params.append(val)
+            idx += 1
+
+    row = await pool.fetchrow(
+        f"""
+        INSERT INTO credentialing_payers (practice_id, clinician_id, payer_name{extra_cols})
+        VALUES ($1::uuid, $2, $3{extra_vals})
+        RETURNING *
+        """,
+        *params,
+    )
+    return _cred_payer_to_dict(row)
+
+
+async def get_credentialing_payer(payer_id: str) -> dict | None:
+    """Get a single credentialing payer record."""
+    pool = await get_pool()
+    row = await pool.fetchrow(
+        "SELECT * FROM credentialing_payers WHERE id = $1::uuid", payer_id,
+    )
+    return _cred_payer_to_dict(row) if row else None
+
+
+async def list_credentialing_payers(
+    practice_id: str,
+    clinician_id: str | None = None,
+    status: str | None = None,
+) -> list[dict]:
+    """List credentialing payer records for a practice."""
+    pool = await get_pool()
+    query = "SELECT * FROM credentialing_payers WHERE practice_id = $1::uuid"
+    params: list = [practice_id]
+    idx = 2
+
+    if clinician_id:
+        query += f" AND clinician_id = ${idx}"
+        params.append(clinician_id)
+        idx += 1
+    if status:
+        query += f" AND status = ${idx}"
+        params.append(status)
+        idx += 1
+
+    query += " ORDER BY updated_at DESC"
+    rows = await pool.fetch(query, *params)
+    return [_cred_payer_to_dict(r) for r in rows]
+
+
+async def update_credentialing_payer(payer_id: str, **fields) -> dict | None:
+    """Update a credentialing payer record. Returns updated record or None."""
+    pool = await get_pool()
+
+    allowed = (
+        "payer_name", "payer_id", "status", "provider_relations_phone",
+        "provider_relations_email", "provider_relations_fax", "portal_url",
+        "application_submitted_at", "credentialed_at", "effective_date",
+        "expiration_date", "denied_at", "denial_reason", "recredential_reminder_days",
+        "required_documents", "contracted_rates", "notes",
+    )
+
+    sets = []
+    vals = []
+    idx = 1
+    for key, val in fields.items():
+        if key not in allowed:
+            continue
+        if key in ("effective_date", "expiration_date"):
+            sets.append(f"{key} = ${idx}::date")
+        elif key in ("application_submitted_at", "credentialed_at", "denied_at"):
+            sets.append(f"{key} = ${idx}::timestamptz")
+        elif key in ("required_documents", "contracted_rates"):
+            sets.append(f"{key} = ${idx}::jsonb")
+            val = __to_json(val)
+        else:
+            sets.append(f"{key} = ${idx}")
+        vals.append(val)
+        idx += 1
+
+    if not sets:
+        return await get_credentialing_payer(payer_id)
+
+    sets.append(f"updated_at = now()")
+    vals.append(payer_id)
+    query = f"UPDATE credentialing_payers SET {', '.join(sets)} WHERE id = ${idx}::uuid RETURNING *"
+    row = await pool.fetchrow(query, *vals)
+    return _cred_payer_to_dict(row) if row else None
+
+
+async def delete_credentialing_payer(payer_id: str) -> bool:
+    """Delete a credentialing payer record."""
+    pool = await get_pool()
+    result = await pool.execute(
+        "DELETE FROM credentialing_payers WHERE id = $1::uuid", payer_id,
+    )
+    return result == "DELETE 1"
+
+
+async def get_expiring_credentials(practice_id: str, days_ahead: int = 90) -> list[dict]:
+    """Get credentialing payers with credentials expiring within N days."""
+    pool = await get_pool()
+    rows = await pool.fetch(
+        """
+        SELECT * FROM credentialing_payers
+        WHERE practice_id = $1::uuid
+          AND status = 'credentialed'
+          AND expiration_date IS NOT NULL
+          AND expiration_date <= CURRENT_DATE + $2 * INTERVAL '1 day'
+        ORDER BY expiration_date ASC
+        """,
+        practice_id, days_ahead,
+    )
+    return [_cred_payer_to_dict(r) for r in rows]
+
+
+async def get_stale_applications(practice_id: str, days_stale: int = 30) -> list[dict]:
+    """Get credentialing payers with applications pending longer than N days."""
+    pool = await get_pool()
+    rows = await pool.fetch(
+        """
+        SELECT * FROM credentialing_payers
+        WHERE practice_id = $1::uuid
+          AND status IN ('application_submitted', 'pending')
+          AND application_submitted_at IS NOT NULL
+          AND application_submitted_at <= now() - $2 * INTERVAL '1 day'
+        ORDER BY application_submitted_at ASC
+        """,
+        practice_id, days_stale,
+    )
+    return [_cred_payer_to_dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Credentialing — Documents
+# ---------------------------------------------------------------------------
+
+def _cred_doc_to_dict(r, include_file: bool = False) -> dict:
+    d = {
+        "id": str(r["id"]),
+        "payer_id": str(r["payer_id"]) if r["payer_id"] else None,
+        "practice_id": str(r["practice_id"]),
+        "clinician_id": r["clinician_id"],
+        "document_type": r["document_type"],
+        "file_name": r["file_name"],
+        "mime_type": r["mime_type"],
+        "file_size_bytes": r["file_size_bytes"],
+        "extracted_data": r["extracted_data"],
+        "expiration_date": r["expiration_date"].isoformat() if r["expiration_date"] else None,
+        "issue_date": r["issue_date"].isoformat() if r["issue_date"] else None,
+        "issuing_authority": r["issuing_authority"],
+        "document_number": r["document_number"],
+        "verified": r["verified"],
+        "notes": r["notes"],
+        "created_at": r["created_at"].isoformat(),
+        "updated_at": r["updated_at"].isoformat(),
+    }
+    if include_file and r.get("file_data"):
+        import base64
+        d["file_data_b64"] = base64.b64encode(r["file_data"]).decode()
+    return d
+
+
+async def create_credentialing_document(
+    practice_id: str,
+    clinician_id: str,
+    document_type: str,
+    file_name: str,
+    mime_type: str,
+    file_data: bytes,
+    payer_id: str | None = None,
+    **kwargs,
+) -> dict:
+    """Create a credentialing document record."""
+    pool = await get_pool()
+
+    extra_cols = ""
+    extra_vals = ""
+    params = [practice_id, clinician_id, document_type, file_name, mime_type, file_data, len(file_data)]
+    idx = 8
+
+    if payer_id:
+        extra_cols += ", payer_id"
+        extra_vals += f", ${idx}::uuid"
+        params.append(payer_id)
+        idx += 1
+
+    optional = ("extracted_data", "expiration_date", "issue_date", "issuing_authority", "document_number", "notes")
+    for key in optional:
+        if key in kwargs and kwargs[key] is not None:
+            extra_cols += f", {key}"
+            val = kwargs[key]
+            if key in ("expiration_date", "issue_date"):
+                extra_vals += f", ${idx}::date"
+            elif key == "extracted_data":
+                extra_vals += f", ${idx}::jsonb"
+                val = __to_json(val)
+            else:
+                extra_vals += f", ${idx}"
+            params.append(val)
+            idx += 1
+
+    row = await pool.fetchrow(
+        f"""
+        INSERT INTO credentialing_documents
+            (practice_id, clinician_id, document_type, file_name, mime_type, file_data, file_size_bytes{extra_cols})
+        VALUES ($1::uuid, $2, $3, $4, $5, $6, $7{extra_vals})
+        RETURNING *
+        """,
+        *params,
+    )
+    return _cred_doc_to_dict(row)
+
+
+async def get_credentialing_document(doc_id: str) -> dict | None:
+    """Get a credentialing document (metadata only, no file data)."""
+    pool = await get_pool()
+    row = await pool.fetchrow(
+        """SELECT id, payer_id, practice_id, clinician_id, document_type, file_name, mime_type,
+                  file_size_bytes, extracted_data, expiration_date, issue_date, issuing_authority,
+                  document_number, verified, notes, created_at, updated_at
+           FROM credentialing_documents WHERE id = $1::uuid""",
+        doc_id,
+    )
+    return _cred_doc_to_dict(row) if row else None
+
+
+async def get_credentialing_document_file(doc_id: str) -> dict | None:
+    """Get a credentialing document including file data for download."""
+    pool = await get_pool()
+    row = await pool.fetchrow(
+        "SELECT * FROM credentialing_documents WHERE id = $1::uuid", doc_id,
+    )
+    return _cred_doc_to_dict(row, include_file=True) if row else None
+
+
+async def list_credentialing_documents(
+    practice_id: str,
+    clinician_id: str | None = None,
+    payer_id: str | None = None,
+    document_type: str | None = None,
+) -> list[dict]:
+    """List credentialing documents (metadata only)."""
+    pool = await get_pool()
+    query = """SELECT id, payer_id, practice_id, clinician_id, document_type, file_name, mime_type,
+                      file_size_bytes, extracted_data, expiration_date, issue_date, issuing_authority,
+                      document_number, verified, notes, created_at, updated_at
+               FROM credentialing_documents WHERE practice_id = $1::uuid"""
+    params: list = [practice_id]
+    idx = 2
+
+    if clinician_id:
+        query += f" AND clinician_id = ${idx}"
+        params.append(clinician_id)
+        idx += 1
+    if payer_id:
+        query += f" AND payer_id = ${idx}::uuid"
+        params.append(payer_id)
+        idx += 1
+    if document_type:
+        query += f" AND document_type = ${idx}"
+        params.append(document_type)
+        idx += 1
+
+    query += " ORDER BY created_at DESC"
+    rows = await pool.fetch(query, *params)
+    return [_cred_doc_to_dict(r) for r in rows]
+
+
+async def update_credentialing_document(doc_id: str, **fields) -> dict | None:
+    """Update a credentialing document metadata."""
+    pool = await get_pool()
+    allowed = (
+        "payer_id", "document_type", "extracted_data", "expiration_date",
+        "issue_date", "issuing_authority", "document_number", "verified", "notes",
+    )
+    sets = []
+    vals = []
+    idx = 1
+    for key, val in fields.items():
+        if key not in allowed:
+            continue
+        if key in ("expiration_date", "issue_date"):
+            sets.append(f"{key} = ${idx}::date")
+        elif key == "extracted_data":
+            sets.append(f"{key} = ${idx}::jsonb")
+            val = __to_json(val)
+        elif key == "payer_id":
+            sets.append(f"{key} = ${idx}::uuid")
+        else:
+            sets.append(f"{key} = ${idx}")
+        vals.append(val)
+        idx += 1
+
+    if not sets:
+        return await get_credentialing_document(doc_id)
+
+    sets.append("updated_at = now()")
+    vals.append(doc_id)
+    row = await pool.fetchrow(
+        f"UPDATE credentialing_documents SET {', '.join(sets)} WHERE id = ${idx}::uuid RETURNING *",
+        *vals,
+    )
+    return _cred_doc_to_dict(row) if row else None
+
+
+async def delete_credentialing_document(doc_id: str) -> bool:
+    """Delete a credentialing document."""
+    pool = await get_pool()
+    result = await pool.execute(
+        "DELETE FROM credentialing_documents WHERE id = $1::uuid", doc_id,
+    )
+    return result == "DELETE 1"
+
+
+# ---------------------------------------------------------------------------
+# Credentialing — Timeline Events
+# ---------------------------------------------------------------------------
+
+async def create_credentialing_timeline_event(
+    payer_id: str,
+    event_type: str,
+    description: str,
+    created_by: str | None = None,
+    metadata: dict | None = None,
+) -> dict:
+    """Create a timeline event for a credentialing payer."""
+    pool = await get_pool()
+    row = await pool.fetchrow(
+        """
+        INSERT INTO credentialing_timeline_events (payer_id, event_type, description, created_by, metadata)
+        VALUES ($1::uuid, $2, $3, $4, $5::jsonb)
+        RETURNING *
+        """,
+        payer_id, event_type, description, created_by, __to_json(metadata),
+    )
+    return {
+        "id": str(row["id"]),
+        "payer_id": str(row["payer_id"]),
+        "event_type": row["event_type"],
+        "description": row["description"],
+        "metadata": row["metadata"],
+        "created_by": row["created_by"],
+        "created_at": row["created_at"].isoformat(),
+    }
+
+
+async def list_credentialing_timeline_events(payer_id: str) -> list[dict]:
+    """List timeline events for a credentialing payer, newest first."""
+    pool = await get_pool()
+    rows = await pool.fetch(
+        """SELECT * FROM credentialing_timeline_events
+           WHERE payer_id = $1::uuid
+           ORDER BY created_at DESC""",
+        payer_id,
+    )
+    return [
+        {
+            "id": str(r["id"]),
+            "payer_id": str(r["payer_id"]),
+            "event_type": r["event_type"],
+            "description": r["description"],
+            "metadata": r["metadata"],
+            "created_by": r["created_by"],
+            "created_at": r["created_at"].isoformat(),
         }
         for r in rows
     ]

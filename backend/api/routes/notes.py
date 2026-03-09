@@ -50,7 +50,7 @@ from db import (
     log_audit_event,
     create_encounter,
 )
-from note_generator import generate_note, regenerate_note
+from note_generator import generate_note, regenerate_note, generate_note_from_dictation
 from note_pdf import generate_note_pdf
 from treatment_plan_generator import generate_treatment_plan as ai_generate_plan
 from db import create_treatment_plan, supersede_treatment_plan
@@ -88,6 +88,15 @@ class AmendNoteRequest(BaseModel):
 class CreateManualNoteRequest(BaseModel):
     client_id: str
     format: str = "SOAP"  # 'SOAP', 'DAP', or 'narrative'
+    appointment_id: str | None = None
+
+
+class GenerateFromDictationRequest(BaseModel):
+    client_id: str
+    dictation: str  # Freeform text from voice dictation or typed input
+    format: str = "SOAP"  # 'SOAP', 'DAP', or 'narrative'
+    session_date: str | None = None  # ISO date string
+    duration_minutes: int | None = None
     appointment_id: str | None = None
 
 
@@ -334,6 +343,123 @@ async def create_manual_note(
     )
 
     return {"note_id": note_id, "encounter_id": encounter_id}
+
+
+@router.post("/notes/generate-from-dictation")
+async def generate_note_from_dictation_endpoint(
+    body: GenerateFromDictationRequest,
+    request: Request,
+    user: dict = Depends(require_practice_member()),
+):
+    """Generate a structured clinical note from freeform dictation using Gemini.
+
+    Takes freeform text (from voice dictation or typed input), creates a
+    placeholder encounter, sends the dictation to Gemini to generate a
+    structured note, and returns the note_id for editing.
+    """
+    if not body.dictation or not body.dictation.strip():
+        raise HTTPException(status_code=400, detail="Dictation text is required.")
+
+    if body.format not in ("SOAP", "DAP", "narrative"):
+        raise HTTPException(status_code=400, detail="Format must be SOAP, DAP, or narrative.")
+
+    # Resolve client name for the prompt
+    client = await get_client(body.client_id)
+    client_name = "the client"
+    if client:
+        client_name = client.get("preferred_name") or (client.get("full_name") or "the client").split()[0]
+
+    # Get active treatment plan for context
+    treatment_plan = await get_active_treatment_plan(body.client_id)
+
+    # Duration
+    duration_sec = (body.duration_minutes * 60) if body.duration_minutes else None
+
+    # Create encounter with dictation as transcript
+    encounter_data = {"manual": True, "dictation": True}
+    if body.appointment_id:
+        encounter_data["appointment_id"] = body.appointment_id
+
+    encounter_id = await create_encounter(
+        client_id=body.client_id,
+        encounter_type="clinical",
+        source="clinician",
+        clinician_id=user["uid"],
+        transcript=body.dictation,
+        data=encounter_data,
+        status="complete",
+        duration_sec=duration_sec,
+    )
+
+    # Generate structured note from dictation via Gemini
+    try:
+        result = await generate_note_from_dictation(
+            dictation=body.dictation,
+            note_format=body.format,
+            client_name=client_name,
+            session_date=body.session_date or "",
+            duration_sec=duration_sec,
+            treatment_plan=treatment_plan,
+        )
+        content = result["content"]
+        chosen_format = result["format"]
+    except Exception as e:
+        logger.error("Dictation note generation failed: %s", e)
+        # Fallback: create blank note so clinician can still edit manually
+        if body.format == "SOAP":
+            content = {"subjective": "", "objective": "", "assessment": "", "plan": ""}
+        elif body.format == "DAP":
+            content = {"data": "", "assessment": "", "plan": ""}
+        else:
+            content = {
+                "identifying_information": "", "presenting_problem": "",
+                "history_of_present_illness": "", "psychiatric_history": "",
+                "substance_use_history": "", "medical_history": "",
+                "family_history": "", "social_developmental_history": "",
+                "mental_status_examination": "", "diagnostic_impressions": "",
+                "risk_assessment": "", "treatment_recommendations": "",
+                "clinical_summary": "",
+            }
+        chosen_format = body.format
+
+    note_id = await _create_clinical_note(
+        encounter_id=encounter_id,
+        note_format=chosen_format,
+        content=content,
+        clinician_id=user["uid"],
+    )
+
+    # Link to appointment if provided
+    if body.appointment_id:
+        pool = await get_pool()
+        await pool.execute(
+            "UPDATE appointments SET encounter_id = $1::uuid WHERE id = $2::uuid",
+            encounter_id,
+            body.appointment_id,
+        )
+
+    await log_audit_event(
+        user_id=user["uid"],
+        action="dictation_note_generated",
+        resource_type="clinical_note",
+        resource_id=note_id,
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+        metadata={
+            "encounter_id": encounter_id,
+            "client_id": body.client_id,
+            "format": chosen_format,
+            "dictation_length": len(body.dictation),
+            "appointment_id": body.appointment_id,
+        },
+    )
+
+    return {
+        "note_id": note_id,
+        "encounter_id": encounter_id,
+        "format": chosen_format,
+        "content": content,
+    }
 
 
 @router.post("/notes/generate")

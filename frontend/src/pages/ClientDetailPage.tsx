@@ -26,9 +26,17 @@ interface ClientDetail {
   emergency_contact_name: string | null;
   emergency_contact_phone: string | null;
   emergency_contact_relationship: string | null;
+  sex: string | null;
   payer_name: string | null;
+  payer_id: string | null;
   member_id: string | null;
   group_number: string | null;
+  default_modality: string | null;
+  secondary_payer_name: string | null;
+  secondary_payer_id: string | null;
+  secondary_member_id: string | null;
+  secondary_group_number: string | null;
+  filing_deadline_days: number | null;
   insurance_data: Record<string, unknown> | null;
   status: "active" | "discharged" | "inactive";
   intake_completed_at: string | null;
@@ -95,6 +103,29 @@ interface TreatmentPlan {
   signed_at?: string | null;
   created_at?: string;
   updated_at?: string;
+}
+
+interface Authorization {
+  id: string;
+  client_id: string;
+  clinician_id: string;
+  payer_name: string;
+  auth_number: string | null;
+  authorized_sessions: number | null;
+  sessions_used: number;
+  cpt_codes: string[] | null;
+  diagnosis_codes: string[] | null;
+  start_date: string;
+  end_date: string;
+  status: "active" | "expired" | "exhausted" | "pending";
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface AuthorizationsResponse {
+  authorizations: Authorization[];
+  count: number;
 }
 
 interface SuperbillItem {
@@ -179,6 +210,13 @@ const ENCOUNTER_SOURCE_LABELS: Record<string, string> = {
   clinician: "Clinician",
 };
 
+const AUTH_STATUS_STYLES: Record<string, string> = {
+  active: "bg-teal-50 text-teal-700",
+  pending: "bg-blue-50 text-blue-700",
+  expired: "bg-warm-100 text-warm-500",
+  exhausted: "bg-red-50 text-red-700",
+};
+
 const SUPERBILL_STATUS_STYLES: Record<string, string> = {
   generated: "bg-blue-50 text-blue-700",
   submitted: "bg-amber-50 text-amber-700",
@@ -213,7 +251,134 @@ export default function ClientDetailPage() {
   const [generatingPlan, setGeneratingPlan] = useState(false);
   const [superbills, setSuperbills] = useState<SuperbillItem[]>([]);
   const [downloadingSuperbill, setDownloadingSuperbill] = useState<string | null>(null);
-  const [creatingManualNote, setCreatingManualNote] = useState<string | null>(null);
+  const [downloadingStatement, setDownloadingStatement] = useState(false);
+  const [emailingStatement, setEmailingStatement] = useState(false);
+
+  // Authorization state
+  const [authorizations, setAuthorizations] = useState<Authorization[]>([]);
+  const [showAuthForm, setShowAuthForm] = useState(false);
+  const [editingAuth, setEditingAuth] = useState<Authorization | null>(null);
+  const [authSaving, setAuthSaving] = useState(false);
+  const [authForm, setAuthForm] = useState({
+    payer_name: "",
+    auth_number: "",
+    authorized_sessions: "",
+    cpt_codes: "",
+    start_date: "",
+    end_date: "",
+    notes: "",
+  });
+
+  // Eligibility check state
+  const [billingConnected, setBillingConnected] = useState(false);
+  const [checkingEligibility, setCheckingEligibility] = useState(false);
+  const [eligibilityResult, setEligibilityResult] = useState<Record<string, any> | null>(null);
+  const [eligibilityError, setEligibilityError] = useState<string | null>(null);
+
+  // Patient payment tracking state
+  const [clientBalance, setClientBalance] = useState<{
+    total_billed: number;
+    total_paid: number;
+    outstanding: number;
+  } | null>(null);
+  const [paymentLinkModal, setPaymentLinkModal] = useState<{
+    superbillId: string;
+    amount: number;
+  } | null>(null);
+  const [paymentLinkResult, setPaymentLinkResult] = useState<{
+    url: string;
+    amount: number;
+    expires_at: string | null;
+  } | null>(null);
+  const [creatingPaymentLink, setCreatingPaymentLink] = useState(false);
+  const [copiedPaymentLink, setCopiedPaymentLink] = useState(false);
+
+  // Inline edit state for client profile fields
+  const [editingField, setEditingField] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState<string>("");
+  const [savingField, setSavingField] = useState(false);
+
+  async function handleSaveField(fieldName: string) {
+    if (!client || !clientId) return;
+    setSavingField(true);
+    try {
+      const payload: Record<string, unknown> = {};
+      if (fieldName === "filing_deadline_days") {
+        payload[fieldName] = parseInt(editValue, 10) || 90;
+      } else {
+        payload[fieldName] = editValue || null;
+      }
+      await api.patch(`/api/clients/${clientId}`, payload);
+      setClient({ ...client, ...payload } as ClientDetail);
+      setEditingField(null);
+    } catch (err) {
+      console.error("Failed to save field:", err);
+    } finally {
+      setSavingField(false);
+    }
+  }
+
+  function startEdit(fieldName: string, currentValue: string | number | null) {
+    setEditingField(fieldName);
+    setEditValue(String(currentValue ?? ""));
+  }
+
+  async function handleCheckEligibility() {
+    if (!clientId) return;
+    setCheckingEligibility(true);
+    setEligibilityError(null);
+    try {
+      const result = await api.post<Record<string, any>>(
+        `/api/clients/${client?.firebase_uid || clientId}/eligibility`,
+        {}
+      );
+      setEligibilityResult(result);
+    } catch (err: any) {
+      setEligibilityError(err.message || "Failed to check eligibility.");
+      setEligibilityResult(null);
+    } finally {
+      setCheckingEligibility(false);
+    }
+  }
+
+  async function handleCreatePaymentLink(superbillId: string) {
+    setCreatingPaymentLink(true);
+    try {
+      const result = await api.post<{
+        payment_link_url: string;
+        amount: number;
+        expires_at: string | null;
+        superbill_id: string;
+      }>(`/api/superbills/${superbillId}/payment-link`, {});
+      setPaymentLinkResult({
+        url: result.payment_link_url,
+        amount: result.amount,
+        expires_at: result.expires_at,
+      });
+    } catch (err: any) {
+      console.error("Failed to create payment link:", err);
+      alert(err.message || "Failed to create payment link.");
+    } finally {
+      setCreatingPaymentLink(false);
+    }
+  }
+
+  async function handleCopyPaymentLink(url: string) {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedPaymentLink(true);
+      setTimeout(() => setCopiedPaymentLink(false), 2000);
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = url;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      setCopiedPaymentLink(true);
+      setTimeout(() => setCopiedPaymentLink(false), 2000);
+    }
+  }
 
   // Discharge workflow state
   const [showDischargeModal, setShowDischargeModal] = useState(false);
@@ -264,6 +429,19 @@ export default function ClientDetailPage() {
             `/api/superbills/client/${clientId}`
           );
           setSuperbills(sbData.superbills);
+          if (sbData.client_balance) {
+            setClientBalance(sbData.client_balance);
+          }
+        } catch {
+          // Non-critical
+        }
+
+        // Load authorizations for this client
+        try {
+          const authData = await api.get<AuthorizationsResponse>(
+            `/api/authorizations/client/${clientData.firebase_uid}`
+          );
+          setAuthorizations(authData.authorizations);
         } catch {
           // Non-critical
         }
@@ -278,6 +456,14 @@ export default function ClientDetailPage() {
           } catch {
             // Non-critical
           }
+        }
+
+        // Check if billing service is connected
+        try {
+          const billingSettings = await api.get<{ connected: boolean }>("/api/billing/settings");
+          setBillingConnected(billingSettings.connected);
+        } catch {
+          // Non-critical
         }
       } catch (err) {
         console.error("Failed to load client detail:", err);
@@ -366,24 +552,129 @@ export default function ClientDetailPage() {
     }
   }
 
-  async function handleCreateManualNote(appointmentId: string) {
+  async function handleDownloadStatement() {
     if (!client) return;
-    setCreatingManualNote(appointmentId);
+    setDownloadingStatement(true);
     try {
-      const res = await api.post<{ note_id: string; encounter_id: string }>(
-        "/api/notes/create-manual",
-        {
-          client_id: client.firebase_uid,
-          format: "SOAP",
-          appointment_id: appointmentId,
-        },
-      );
-      navigate(`/notes/${res.note_id}`);
-    } catch (e: any) {
-      console.error("Failed to create manual note:", e);
+      const blob = await api.postBlob(`/api/clients/${client.firebase_uid}/statement`, {});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `statement_${(client.full_name || "client").replace(/\s+/g, "_")}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Failed to generate statement:", err);
+      alert("Failed to generate patient statement.");
     } finally {
-      setCreatingManualNote(null);
+      setDownloadingStatement(false);
     }
+  }
+
+  async function handleEmailStatement() {
+    if (!client) return;
+    setEmailingStatement(true);
+    try {
+      await api.post(`/api/clients/${client.firebase_uid}/statement/email`, {});
+      alert("Statement emailed to client successfully.");
+    } catch (err: any) {
+      console.error("Failed to email statement:", err);
+      alert(err.message || "Failed to email statement.");
+    } finally {
+      setEmailingStatement(false);
+    }
+  }
+
+  // --- Authorization handlers ---
+  function openAuthForm(auth?: Authorization) {
+    if (auth) {
+      setEditingAuth(auth);
+      setAuthForm({
+        payer_name: auth.payer_name,
+        auth_number: auth.auth_number || "",
+        authorized_sessions: auth.authorized_sessions !== null ? String(auth.authorized_sessions) : "",
+        cpt_codes: auth.cpt_codes ? auth.cpt_codes.join(", ") : "",
+        start_date: auth.start_date,
+        end_date: auth.end_date,
+        notes: auth.notes || "",
+      });
+    } else {
+      setEditingAuth(null);
+      setAuthForm({
+        payer_name: client?.payer_name || "",
+        auth_number: "",
+        authorized_sessions: "",
+        cpt_codes: "",
+        start_date: "",
+        end_date: "",
+        notes: "",
+      });
+    }
+    setShowAuthForm(true);
+  }
+
+  async function handleSaveAuth() {
+    if (!client) return;
+    setAuthSaving(true);
+    try {
+      const payload: Record<string, unknown> = {
+        payer_name: authForm.payer_name,
+        auth_number: authForm.auth_number || null,
+        authorized_sessions: authForm.authorized_sessions ? parseInt(authForm.authorized_sessions, 10) : null,
+        cpt_codes: authForm.cpt_codes ? authForm.cpt_codes.split(",").map((s) => s.trim()).filter(Boolean) : null,
+        start_date: authForm.start_date,
+        end_date: authForm.end_date,
+        notes: authForm.notes || null,
+      };
+
+      if (editingAuth) {
+        await api.put(`/api/authorizations/${editingAuth.id}`, payload);
+      } else {
+        await api.post("/api/authorizations", {
+          ...payload,
+          client_id: client.firebase_uid,
+        });
+      }
+
+      // Reload authorizations
+      const authData = await api.get<AuthorizationsResponse>(
+        `/api/authorizations/client/${client.firebase_uid}`
+      );
+      setAuthorizations(authData.authorizations);
+      setShowAuthForm(false);
+      setEditingAuth(null);
+    } catch (err: any) {
+      console.error("Failed to save authorization:", err);
+      alert(err.message || "Failed to save authorization.");
+    } finally {
+      setAuthSaving(false);
+    }
+  }
+
+  async function handleDeleteAuth(authId: string) {
+    if (!client || !confirm("Delete this authorization?")) return;
+    try {
+      await api.del(`/api/authorizations/${authId}`);
+      setAuthorizations((prev) => prev.filter((a) => a.id !== authId));
+    } catch (err: any) {
+      console.error("Failed to delete authorization:", err);
+      alert(err.message || "Failed to delete authorization.");
+    }
+  }
+
+  function getAuthColor(auth: Authorization): string {
+    if (auth.status === "expired" || auth.status === "exhausted") return "border-red-200 bg-red-50/30";
+    if (auth.authorized_sessions !== null) {
+      const remaining = auth.authorized_sessions - auth.sessions_used;
+      if (remaining <= 3) return "border-amber-200 bg-amber-50/30";
+    }
+    const endDate = new Date(auth.end_date);
+    const now = new Date();
+    const daysUntilExpiry = Math.floor((endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    if (daysUntilExpiry <= 14) return "border-amber-200 bg-amber-50/30";
+    return "border-teal-200 bg-teal-50/30";
   }
 
   async function handleDischargeClick() {
@@ -561,24 +852,238 @@ export default function ClientDetailPage() {
               {client.date_of_birth && (
                 <p className="text-warm-500">DOB: {formatDate(client.date_of_birth)}</p>
               )}
+              {client.sex && (
+                <p className="text-warm-500">
+                  Sex: {{ M: "Male", F: "Female", X: "Non-binary", U: "Not specified" }[client.sex] || client.sex}
+                </p>
+              )}
               {address && <p className="text-warm-500">{address}</p>}
+              <p className="text-warm-500">
+                Modality: {client.default_modality === "in_office" ? "In-office" : "Telehealth"}
+                <button
+                  onClick={() => startEdit("default_modality", client.default_modality)}
+                  className="ml-1 text-teal-600 hover:text-teal-700 text-xs"
+                >
+                  edit
+                </button>
+              </p>
+              {editingField === "default_modality" && (
+                <div className="flex items-center gap-2 mt-1">
+                  <select
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                    className="px-2 py-1 text-xs border border-warm-200 rounded-lg"
+                  >
+                    <option value="telehealth">Telehealth</option>
+                    <option value="in_office">In-office</option>
+                  </select>
+                  <button onClick={() => handleSaveField("default_modality")} disabled={savingField} className="text-xs text-teal-600 font-medium">Save</button>
+                  <button onClick={() => setEditingField(null)} className="text-xs text-warm-400">Cancel</button>
+                </div>
+              )}
             </div>
           </div>
 
           {/* Insurance */}
           <div>
             <h3 className="text-xs font-semibold text-warm-400 uppercase tracking-wide mb-2">
-              Insurance
+              Primary Insurance
             </h3>
             <div className="space-y-1 text-sm">
               <p className="text-warm-700 font-medium">
                 {client.payer_name || "Self-pay"}
+                <button
+                  onClick={() => startEdit("payer_name", client.payer_name)}
+                  className="ml-1 text-teal-600 hover:text-teal-700 text-xs"
+                >
+                  edit
+                </button>
               </p>
+              {editingField === "payer_name" && (
+                <div className="flex items-center gap-2">
+                  <input value={editValue} onChange={(e) => setEditValue(e.target.value)} className="px-2 py-1 text-xs border border-warm-200 rounded-lg w-full" />
+                  <button onClick={() => handleSaveField("payer_name")} disabled={savingField} className="text-xs text-teal-600 font-medium">Save</button>
+                  <button onClick={() => setEditingField(null)} className="text-xs text-warm-400">Cancel</button>
+                </div>
+              )}
+              {client.payer_id && (
+                <p className="text-warm-500">Payer ID: {client.payer_id}</p>
+              )}
               {client.member_id && (
                 <p className="text-warm-500">Member ID: {client.member_id}</p>
               )}
               {client.group_number && (
                 <p className="text-warm-500">Group: {client.group_number}</p>
+              )}
+              {(client.payer_name && !client.payer_id) && (
+                <button
+                  onClick={() => startEdit("payer_id", client.payer_id)}
+                  className="text-xs text-teal-600 hover:text-teal-700"
+                >
+                  + Add Payer ID
+                </button>
+              )}
+              {editingField === "payer_id" && (
+                <div className="flex items-center gap-2">
+                  <input value={editValue} onChange={(e) => setEditValue(e.target.value)} placeholder="Electronic payer ID" className="px-2 py-1 text-xs border border-warm-200 rounded-lg w-full" />
+                  <button onClick={() => handleSaveField("payer_id")} disabled={savingField} className="text-xs text-teal-600 font-medium">Save</button>
+                  <button onClick={() => setEditingField(null)} className="text-xs text-warm-400">Cancel</button>
+                </div>
+              )}
+
+              {/* Secondary Insurance */}
+              {client.secondary_payer_name ? (
+                <div className="mt-3 pt-2 border-t border-warm-50">
+                  <p className="text-xs font-semibold text-warm-400 uppercase tracking-wide mb-1">Secondary</p>
+                  <p className="text-warm-700">{client.secondary_payer_name}</p>
+                  {client.secondary_payer_id && <p className="text-warm-500">Payer ID: {client.secondary_payer_id}</p>}
+                  {client.secondary_member_id && <p className="text-warm-500">Member ID: {client.secondary_member_id}</p>}
+                  {client.secondary_group_number && <p className="text-warm-500">Group: {client.secondary_group_number}</p>}
+                </div>
+              ) : (
+                <button
+                  onClick={() => startEdit("secondary_payer_name", "")}
+                  className="text-xs text-teal-600 hover:text-teal-700 mt-2"
+                >
+                  + Add Secondary Insurance
+                </button>
+              )}
+              {editingField === "secondary_payer_name" && (
+                <div className="flex items-center gap-2 mt-1">
+                  <input value={editValue} onChange={(e) => setEditValue(e.target.value)} placeholder="Secondary payer name" className="px-2 py-1 text-xs border border-warm-200 rounded-lg w-full" />
+                  <button onClick={() => handleSaveField("secondary_payer_name")} disabled={savingField} className="text-xs text-teal-600 font-medium">Save</button>
+                  <button onClick={() => setEditingField(null)} className="text-xs text-warm-400">Cancel</button>
+                </div>
+              )}
+
+              {/* Eligibility Check */}
+              {billingConnected && client.payer_id && client.member_id && (
+                <div className="mt-4 pt-3 border-t border-warm-100">
+                  <button
+                    onClick={handleCheckEligibility}
+                    disabled={checkingEligibility}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-teal-50 text-teal-700 hover:bg-teal-100 transition-colors disabled:opacity-50"
+                  >
+                    {checkingEligibility ? (
+                      <span className="w-3 h-3 block border-2 border-teal-200 border-t-teal-600 rounded-full animate-spin" />
+                    ) : (
+                      <svg viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                        <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
+                      </svg>
+                    )}
+                    Verify Eligibility
+                  </button>
+
+                  {eligibilityError && (
+                    <p className="mt-2 text-xs text-red-600">{eligibilityError}</p>
+                  )}
+
+                  {eligibilityResult && (
+                    <div className="mt-3 p-3 bg-warm-50 rounded-lg space-y-2">
+                      {/* Active/Inactive badge */}
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${
+                            eligibilityResult.active
+                              ? "bg-teal-100 text-teal-700"
+                              : "bg-red-100 text-red-700"
+                          }`}
+                        >
+                          {eligibilityResult.active ? "Active" : "Inactive"}
+                        </span>
+                        {eligibilityResult.plan_name && (
+                          <span className="text-xs text-warm-500">{eligibilityResult.plan_name}</span>
+                        )}
+                        {eligibilityResult.cached && (
+                          <span className="text-xs text-warm-400 italic">cached</span>
+                        )}
+                      </div>
+
+                      {/* Copay */}
+                      {eligibilityResult.copay?.amount != null && (
+                        <div className="flex justify-between text-xs">
+                          <span className="text-warm-500">Copay</span>
+                          <span className="text-warm-700 font-medium">${eligibilityResult.copay.amount.toFixed(2)}</span>
+                        </div>
+                      )}
+
+                      {/* Deductible */}
+                      {eligibilityResult.deductible?.individual?.total != null && (
+                        <div>
+                          <div className="flex justify-between text-xs mb-1">
+                            <span className="text-warm-500">Deductible</span>
+                            <span className="text-warm-700">
+                              ${((eligibilityResult.deductible.individual.total || 0) - (eligibilityResult.deductible.individual.remaining || 0)).toFixed(2)}
+                              {" / "}
+                              ${eligibilityResult.deductible.individual.total.toFixed(2)}
+                            </span>
+                          </div>
+                          <div className="w-full bg-warm-200 rounded-full h-1.5">
+                            <div
+                              className="bg-teal-500 h-1.5 rounded-full"
+                              style={{
+                                width: `${Math.min(100, ((eligibilityResult.deductible.individual.total - (eligibilityResult.deductible.individual.remaining || 0)) / eligibilityResult.deductible.individual.total) * 100)}%`,
+                              }}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* OOP Max */}
+                      {eligibilityResult.out_of_pocket_max?.individual?.total != null && (
+                        <div>
+                          <div className="flex justify-between text-xs mb-1">
+                            <span className="text-warm-500">OOP Max</span>
+                            <span className="text-warm-700">
+                              ${((eligibilityResult.out_of_pocket_max.individual.total || 0) - (eligibilityResult.out_of_pocket_max.individual.remaining || 0)).toFixed(2)}
+                              {" / "}
+                              ${eligibilityResult.out_of_pocket_max.individual.total.toFixed(2)}
+                            </span>
+                          </div>
+                          <div className="w-full bg-warm-200 rounded-full h-1.5">
+                            <div
+                              className="bg-indigo-500 h-1.5 rounded-full"
+                              style={{
+                                width: `${Math.min(100, ((eligibilityResult.out_of_pocket_max.individual.total - (eligibilityResult.out_of_pocket_max.individual.remaining || 0)) / eligibilityResult.out_of_pocket_max.individual.total) * 100)}%`,
+                              }}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Session limits */}
+                      {eligibilityResult.session_limits && (
+                        <div className="flex justify-between text-xs">
+                          <span className="text-warm-500">Sessions</span>
+                          <span className="text-warm-700">
+                            {eligibilityResult.session_limits.used ?? 0} / {eligibilityResult.session_limits.allowed ?? "N/A"}
+                            {eligibilityResult.session_limits.remaining != null && (
+                              <span className="text-warm-400"> ({eligibilityResult.session_limits.remaining} remaining)</span>
+                            )}
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Prior auth */}
+                      {eligibilityResult.prior_auth_required != null && (
+                        <div className="flex justify-between text-xs">
+                          <span className="text-warm-500">Prior Auth Required</span>
+                          <span className={`font-medium ${eligibilityResult.prior_auth_required ? "text-amber-600" : "text-teal-600"}`}>
+                            {eligibilityResult.prior_auth_required ? "Yes" : "No"}
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Carve-out payer warning */}
+                      {eligibilityResult.carve_out_payer && (
+                        <div className="mt-1 px-2 py-1.5 bg-amber-50 border border-amber-200 rounded text-xs text-amber-700">
+                          Carve-out: {eligibilityResult.carve_out_payer.name}
+                          {eligibilityResult.carve_out_payer.id && ` (${eligibilityResult.carve_out_payer.id})`}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           </div>
@@ -604,6 +1109,51 @@ export default function ClientDetailPage() {
               )}
             </div>
           </div>
+        </div>
+
+        {/* Editable demographic fields row */}
+        <div className="grid md:grid-cols-4 gap-4 mt-4 pt-4 border-t border-warm-50">
+          <div className="text-sm">
+            <span className="text-warm-400 text-xs">Sex</span>
+            <p className="text-warm-700">
+              {client.sex ? { M: "Male", F: "Female", X: "Non-binary", U: "Not specified" }[client.sex] || client.sex : "Not set"}
+              <button onClick={() => startEdit("sex", client.sex)} className="ml-1 text-teal-600 hover:text-teal-700 text-xs">edit</button>
+            </p>
+            {editingField === "sex" && (
+              <div className="flex items-center gap-2 mt-1">
+                <select value={editValue} onChange={(e) => setEditValue(e.target.value)} className="px-2 py-1 text-xs border border-warm-200 rounded-lg">
+                  <option value="">Select...</option>
+                  <option value="M">Male</option>
+                  <option value="F">Female</option>
+                  <option value="X">Non-binary</option>
+                  <option value="U">Not specified</option>
+                </select>
+                <button onClick={() => handleSaveField("sex")} disabled={savingField} className="text-xs text-teal-600 font-medium">Save</button>
+                <button onClick={() => setEditingField(null)} className="text-xs text-warm-400">Cancel</button>
+              </div>
+            )}
+          </div>
+          <div className="text-sm">
+            <span className="text-warm-400 text-xs">Filing Deadline</span>
+            <p className="text-warm-700">
+              {client.filing_deadline_days ?? 90} days
+              <button onClick={() => startEdit("filing_deadline_days", client.filing_deadline_days)} className="ml-1 text-teal-600 hover:text-teal-700 text-xs">edit</button>
+            </p>
+            {editingField === "filing_deadline_days" && (
+              <div className="flex items-center gap-2 mt-1">
+                <input type="number" value={editValue} onChange={(e) => setEditValue(e.target.value)} className="px-2 py-1 text-xs border border-warm-200 rounded-lg w-20" />
+                <span className="text-xs text-warm-400">days</span>
+                <button onClick={() => handleSaveField("filing_deadline_days")} disabled={savingField} className="text-xs text-teal-600 font-medium">Save</button>
+                <button onClick={() => setEditingField(null)} className="text-xs text-warm-400">Cancel</button>
+              </div>
+            )}
+          </div>
+          {client.secondary_payer_id && (
+            <div className="text-sm">
+              <span className="text-warm-400 text-xs">Secondary Payer ID</span>
+              <p className="text-warm-700">{client.secondary_payer_id}</p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -888,6 +1438,19 @@ export default function ClientDetailPage() {
             </svg>
           }
           badge={notes.length > 0 ? String(notes.length) : undefined}
+          action={
+            client && (
+              <Link
+                to={`/notes/new?client=${client.firebase_uid}`}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 rounded-lg transition-colors"
+              >
+                <svg viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                  <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" />
+                </svg>
+                New Note
+              </Link>
+            )
+          }
         >
           {notes.length > 0 ? (
             <div className="divide-y divide-warm-100">
@@ -1040,14 +1603,13 @@ export default function ClientDetailPage() {
                           </p>
                         </div>
                         <div className="flex items-center gap-2">
-                          {appt.status === "completed" && !appt.encounter_id && (
-                            <button
-                              onClick={() => handleCreateManualNote(appt.id)}
-                              disabled={creatingManualNote === appt.id}
-                              className="px-2.5 py-1 text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 rounded-lg transition-colors disabled:opacity-50"
+                          {appt.status === "completed" && !appt.encounter_id && client && (
+                            <Link
+                              to={`/notes/new?client=${client.firebase_uid}&appointment=${appt.id}`}
+                              className="px-2.5 py-1 text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 rounded-lg transition-colors"
                             >
-                              {creatingManualNote === appt.id ? "Creating…" : "Write Note"}
-                            </button>
+                              Write Note
+                            </Link>
                           )}
                           <span
                             className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium capitalize ${
@@ -1074,6 +1636,250 @@ export default function ClientDetailPage() {
         </SectionCard>
 
         {/* ----------------------------------------------------------------- */}
+        {/* Authorizations */}
+        {/* ----------------------------------------------------------------- */}
+        <SectionCard
+          title="Authorizations"
+          icon={
+            <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5">
+              <path
+                d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          }
+          badge={authorizations.length > 0 ? String(authorizations.length) : undefined}
+        >
+          {/* Add Authorization button */}
+          <div className="flex justify-end mb-3">
+            <button
+              onClick={() => openAuthForm()}
+              className="px-3 py-1.5 text-xs font-medium text-teal-700 bg-teal-50 rounded-lg hover:bg-teal-100 transition-colors"
+            >
+              + Add Authorization
+            </button>
+          </div>
+
+          {authorizations.length > 0 ? (
+            <div className="space-y-3">
+              {authorizations.map((auth) => (
+                <div
+                  key={auth.id}
+                  className={`rounded-xl border p-4 ${getAuthColor(auth)}`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-warm-800">
+                        {auth.payer_name}
+                      </span>
+                      {auth.auth_number && (
+                        <span className="text-xs font-mono text-warm-500">
+                          #{auth.auth_number}
+                        </span>
+                      )}
+                      <span
+                        className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-medium uppercase ${
+                          AUTH_STATUS_STYLES[auth.status] || ""
+                        }`}
+                      >
+                        {auth.status}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {(auth.status === "active" || auth.status === "pending") && (
+                        <button
+                          onClick={() => openAuthForm(auth)}
+                          className="p-1 text-warm-400 hover:text-teal-600 transition-colors"
+                          title="Edit"
+                        >
+                          <svg viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                            <path d="M2.695 14.763l-1.262 3.154a.5.5 0 00.65.65l3.155-1.262a4 4 0 001.343-.885L17.5 5.5a2.121 2.121 0 00-3-3L3.58 13.42a4 4 0 00-.885 1.343z" />
+                          </svg>
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleDeleteAuth(auth.id)}
+                        className="p-1 text-warm-400 hover:text-red-600 transition-colors"
+                        title="Delete"
+                      >
+                        <svg viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                          <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 01.78.72l.5 6a.75.75 0 01-1.5.12l-.5-6a.75.75 0 01.72-.78zm2.84.72a.75.75 0 111.5-.12l.5 6a.75.75 0 11-1.5.12l-.5-6z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Sessions progress */}
+                  {auth.authorized_sessions !== null && (
+                    <div className="mb-2">
+                      <div className="flex items-center justify-between text-xs mb-1">
+                        <span className="text-warm-500">
+                          {auth.sessions_used} / {auth.authorized_sessions} sessions used
+                        </span>
+                        <span className="font-medium text-warm-600">
+                          {auth.authorized_sessions - auth.sessions_used} remaining
+                        </span>
+                      </div>
+                      <div className="w-full h-2 bg-warm-100 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${
+                            auth.authorized_sessions - auth.sessions_used <= 3
+                              ? auth.authorized_sessions - auth.sessions_used <= 0
+                                ? "bg-red-500"
+                                : "bg-amber-500"
+                              : "bg-teal-500"
+                          }`}
+                          style={{
+                            width: `${Math.min(100, (auth.sessions_used / auth.authorized_sessions) * 100)}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Date range */}
+                  <div className="flex items-center gap-3 text-xs text-warm-500">
+                    <span>
+                      {formatDate(auth.start_date)} - {formatDate(auth.end_date)}
+                    </span>
+                    {auth.cpt_codes && auth.cpt_codes.length > 0 && (
+                      <span className="font-mono">
+                        CPT: {auth.cpt_codes.join(", ")}
+                      </span>
+                    )}
+                  </div>
+                  {auth.notes && (
+                    <p className="text-xs text-warm-400 mt-1">{auth.notes}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState text="No authorizations. Add one to track insurance-approved sessions." />
+          )}
+
+          {/* Auth Form Modal */}
+          {showAuthForm && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center">
+              <div
+                className="absolute inset-0 bg-black/50"
+                onClick={() => { setShowAuthForm(false); setEditingAuth(null); }}
+              />
+              <div className="relative bg-white rounded-2xl shadow-xl max-w-md w-full mx-4 p-6">
+                <h3 className="font-display text-lg font-bold text-warm-800 mb-4">
+                  {editingAuth ? "Edit Authorization" : "Add Authorization"}
+                </h3>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-warm-600 mb-1">
+                      Payer Name *
+                    </label>
+                    <input
+                      type="text"
+                      value={authForm.payer_name}
+                      onChange={(e) => setAuthForm({ ...authForm, payer_name: e.target.value })}
+                      className="w-full px-3 py-2 text-sm border border-warm-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-400"
+                      placeholder="e.g. Blue Cross Blue Shield"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-warm-600 mb-1">
+                      Authorization Number
+                    </label>
+                    <input
+                      type="text"
+                      value={authForm.auth_number}
+                      onChange={(e) => setAuthForm({ ...authForm, auth_number: e.target.value })}
+                      className="w-full px-3 py-2 text-sm border border-warm-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-400"
+                      placeholder="e.g. AUTH-12345"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-warm-600 mb-1">
+                      Authorized Sessions
+                    </label>
+                    <input
+                      type="number"
+                      value={authForm.authorized_sessions}
+                      onChange={(e) => setAuthForm({ ...authForm, authorized_sessions: e.target.value })}
+                      className="w-full px-3 py-2 text-sm border border-warm-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-400"
+                      placeholder="Leave blank for unlimited"
+                      min="1"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-warm-600 mb-1">
+                      CPT Codes (optional, comma-separated)
+                    </label>
+                    <input
+                      type="text"
+                      value={authForm.cpt_codes}
+                      onChange={(e) => setAuthForm({ ...authForm, cpt_codes: e.target.value })}
+                      className="w-full px-3 py-2 text-sm border border-warm-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-400"
+                      placeholder="e.g. 90834, 90837"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-warm-600 mb-1">
+                        Start Date *
+                      </label>
+                      <input
+                        type="date"
+                        value={authForm.start_date}
+                        onChange={(e) => setAuthForm({ ...authForm, start_date: e.target.value })}
+                        className="w-full px-3 py-2 text-sm border border-warm-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-400"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-warm-600 mb-1">
+                        End Date *
+                      </label>
+                      <input
+                        type="date"
+                        value={authForm.end_date}
+                        onChange={(e) => setAuthForm({ ...authForm, end_date: e.target.value })}
+                        className="w-full px-3 py-2 text-sm border border-warm-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-400"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-warm-600 mb-1">
+                      Notes
+                    </label>
+                    <textarea
+                      value={authForm.notes}
+                      onChange={(e) => setAuthForm({ ...authForm, notes: e.target.value })}
+                      className="w-full px-3 py-2 text-sm border border-warm-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-400"
+                      rows={2}
+                      placeholder="Optional notes..."
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2 mt-5">
+                  <button
+                    onClick={() => { setShowAuthForm(false); setEditingAuth(null); }}
+                    className="px-4 py-2 text-sm font-medium text-warm-600 hover:text-warm-800 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSaveAuth}
+                    disabled={authSaving || !authForm.payer_name || !authForm.start_date || !authForm.end_date}
+                    className="px-4 py-2 text-sm font-medium text-white bg-teal-600 rounded-lg hover:bg-teal-700 transition-colors disabled:opacity-50"
+                  >
+                    {authSaving ? "Saving..." : editingAuth ? "Update" : "Create"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </SectionCard>
+
+        {/* ----------------------------------------------------------------- */}
         {/* Superbills */}
         {/* ----------------------------------------------------------------- */}
         <SectionCard
@@ -1093,7 +1899,40 @@ export default function ClientDetailPage() {
         >
           {superbills.length > 0 ? (
             <div className="divide-y divide-warm-100">
-              {superbills.map((sb) => (
+              {/* Patient Balance Summary */}
+              {clientBalance && clientBalance.outstanding > 0 && (
+                <div className="pb-3 mb-1">
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+                    <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-2">
+                      Patient Balance
+                    </p>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div>
+                        <p className="text-xs text-warm-500">Billed</p>
+                        <p className="text-sm font-semibold text-warm-700">
+                          ${clientBalance.total_billed.toFixed(2)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-warm-500">Paid</p>
+                        <p className="text-sm font-semibold text-teal-700">
+                          ${clientBalance.total_paid.toFixed(2)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-warm-500">Outstanding</p>
+                        <p className="text-sm font-bold text-red-600">
+                          ${clientBalance.outstanding.toFixed(2)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {superbills.map((sb) => {
+                const patientBalance = (sb.fee ?? 0) - (sb.amount_paid ?? 0);
+                return (
                 <div key={sb.id} className="py-3 first:pt-0 last:pb-0">
                   <div className="flex items-center justify-between mb-1">
                     <div className="flex items-center gap-2">
@@ -1141,15 +1980,71 @@ export default function ClientDetailPage() {
                       ))}
                     </div>
                   )}
+                  {/* Patient responsibility and payment link per superbill */}
+                  {patientBalance > 0 && (
+                    <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-warm-50">
+                      <span className="text-xs text-red-600 font-medium">
+                        Patient owes: ${patientBalance.toFixed(2)}
+                      </span>
+                      {billingConnected && (
+                        <button
+                          onClick={() =>
+                            setPaymentLinkModal({
+                              superbillId: sb.id,
+                              amount: patientBalance,
+                            })
+                          }
+                          className="px-2 py-0.5 text-[10px] font-medium text-orange-700 bg-orange-50 rounded-lg hover:bg-orange-100 transition-colors flex items-center gap-1"
+                        >
+                          <svg viewBox="0 0 20 20" fill="currentColor" className="w-2.5 h-2.5">
+                            <path d="M12.586 4.586a2 2 0 112.828 2.828l-3 3a2 2 0 01-2.828 0 1 1 0 00-1.414 1.414 4 4 0 005.656 0l3-3a4 4 0 00-5.656-5.656l-1.5 1.5a1 1 0 101.414 1.414l1.5-1.5zm-5 5a2 2 0 012.828 0 1 1 0 001.414-1.414 4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1.5-1.5a1 1 0 10-1.414-1.414l-1.5 1.5a2 2 0 11-2.828-2.828l3-3z" />
+                          </svg>
+                          Send Payment Link
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
-              ))}
-              <div className="pt-3">
+                );
+              })}
+              <div className="pt-3 flex items-center justify-between">
                 <Link
                   to="/billing"
                   className="text-xs text-teal-600 hover:text-teal-700 font-medium transition-colors"
                 >
                   View all in Billing page
                 </Link>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleEmailStatement}
+                    disabled={emailingStatement}
+                    className="px-2.5 py-1 text-xs font-medium text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors disabled:opacity-50 flex items-center gap-1"
+                  >
+                    {emailingStatement ? (
+                      <span className="w-3 h-3 block border-2 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+                    ) : (
+                      <svg viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3">
+                        <path d="M3 4a2 2 0 00-2 2v1.161l8.441 4.221a1.25 1.25 0 001.118 0L19 7.162V6a2 2 0 00-2-2H3z" />
+                        <path d="M19 8.839l-7.77 3.885a2.75 2.75 0 01-2.46 0L1 8.839V14a2 2 0 002 2h14a2 2 0 002-2V8.839z" />
+                      </svg>
+                    )}
+                    Email Statement
+                  </button>
+                  <button
+                    onClick={handleDownloadStatement}
+                    disabled={downloadingStatement}
+                    className="px-2.5 py-1 text-xs font-medium text-teal-700 bg-teal-50 rounded-lg hover:bg-teal-100 transition-colors disabled:opacity-50 flex items-center gap-1"
+                  >
+                    {downloadingStatement ? (
+                      <span className="w-3 h-3 block border-2 border-teal-200 border-t-teal-600 rounded-full animate-spin" />
+                    ) : (
+                      <svg viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3">
+                        <path fillRule="evenodd" d="M4.5 2A1.5 1.5 0 003 3.5v13A1.5 1.5 0 004.5 18h11a1.5 1.5 0 001.5-1.5V7.621a1.5 1.5 0 00-.44-1.06l-4.12-4.122A1.5 1.5 0 0011.378 2H4.5zm2.25 8.5a.75.75 0 000 1.5h6.5a.75.75 0 000-1.5h-6.5zm0 3a.75.75 0 000 1.5h6.5a.75.75 0 000-1.5h-6.5z" clipRule="evenodd" />
+                      </svg>
+                    )}
+                    Statement PDF
+                  </button>
+                </div>
               </div>
             </div>
           ) : (
@@ -1157,6 +2052,119 @@ export default function ClientDetailPage() {
           )}
         </SectionCard>
       </div>
+
+      {/* ----------------------------------------------------------------- */}
+      {/* Payment Link Modal */}
+      {/* ----------------------------------------------------------------- */}
+      {paymentLinkModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => {
+              setPaymentLinkModal(null);
+              setPaymentLinkResult(null);
+            }}
+          />
+          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-md p-6 mx-4">
+            <h3 className="font-display text-lg font-bold text-warm-800 mb-1">
+              Send Payment Link
+            </h3>
+            <p className="text-sm text-warm-500 mb-4">
+              Generate a Stripe payment link for {client?.full_name || "this patient"}.
+            </p>
+
+            {!paymentLinkResult ? (
+              <div className="space-y-4">
+                <div className="bg-warm-50 rounded-xl p-4">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-warm-600">Patient Responsibility</span>
+                    <span className="text-lg font-bold text-red-600">
+                      ${paymentLinkModal.amount.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+
+                {client?.email && (
+                  <div>
+                    <label className="block text-sm font-medium text-warm-700 mb-1">
+                      Patient Email
+                    </label>
+                    <p className="text-sm text-warm-600 bg-warm-50 rounded-lg px-3 py-2">
+                      {client.email}
+                    </p>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-end gap-3 pt-2">
+                  <button
+                    onClick={() => {
+                      setPaymentLinkModal(null);
+                      setPaymentLinkResult(null);
+                    }}
+                    className="px-4 py-2 text-sm font-medium text-warm-600 hover:text-warm-800 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => handleCreatePaymentLink(paymentLinkModal.superbillId)}
+                    disabled={creatingPaymentLink}
+                    className="px-4 py-2 text-sm font-medium rounded-xl bg-teal-600 text-white hover:bg-teal-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+                  >
+                    {creatingPaymentLink ? (
+                      <span className="w-3.5 h-3.5 block border-2 border-teal-200 border-t-white rounded-full animate-spin" />
+                    ) : (
+                      <svg viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                        <path d="M12.586 4.586a2 2 0 112.828 2.828l-3 3a2 2 0 01-2.828 0 1 1 0 00-1.414 1.414 4 4 0 005.656 0l3-3a4 4 0 00-5.656-5.656l-1.5 1.5a1 1 0 101.414 1.414l1.5-1.5zm-5 5a2 2 0 012.828 0 1 1 0 001.414-1.414 4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1.5-1.5a1 1 0 10-1.414-1.414l-1.5 1.5a2 2 0 11-2.828-2.828l3-3z" />
+                      </svg>
+                    )}
+                    Generate Payment Link
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="bg-teal-50 border border-teal-200 rounded-xl p-4">
+                  <p className="text-sm text-teal-800 font-medium mb-2">
+                    Payment link generated!
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={paymentLinkResult.url}
+                      className="flex-1 px-3 py-2 text-xs bg-white border border-teal-200 rounded-lg text-warm-600 truncate"
+                    />
+                    <button
+                      onClick={() => handleCopyPaymentLink(paymentLinkResult.url)}
+                      className="px-3 py-2 text-xs font-medium rounded-lg bg-teal-600 text-white hover:bg-teal-700 transition-colors whitespace-nowrap"
+                    >
+                      {copiedPaymentLink ? "Copied!" : "Copy"}
+                    </button>
+                  </div>
+                  <p className="text-xs text-teal-600 mt-2">
+                    Amount: ${paymentLinkResult.amount.toFixed(2)}
+                    {paymentLinkResult.expires_at && (
+                      <> &middot; Expires: {formatDate(paymentLinkResult.expires_at)}</>
+                    )}
+                  </p>
+                </div>
+
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => {
+                      setPaymentLinkModal(null);
+                      setPaymentLinkResult(null);
+                    }}
+                    className="px-4 py-2 text-sm font-medium text-warm-600 hover:text-warm-800 transition-colors"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ----------------------------------------------------------------- */}
       {/* Discharge Confirmation Modal */}
@@ -1416,11 +2424,13 @@ function SectionCard({
   title,
   icon,
   badge,
+  action,
   children,
 }: {
   title: string;
   icon: React.ReactNode;
   badge?: string;
+  action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
@@ -1433,6 +2443,7 @@ function SectionCard({
             {badge}
           </span>
         )}
+        {action && <span className="ml-auto">{action}</span>}
       </h2>
       {children}
     </div>

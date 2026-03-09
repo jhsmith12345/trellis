@@ -24,6 +24,8 @@ from routes.notes import router as notes_router
 from routes.assistant import router as assistant_router
 from routes.treatment_plans import router as treatment_plans_router
 from routes.billing import router as billing_router
+from routes.authorizations import router as authorizations_router
+from routes.credentialing import router as credentialing_router
 from routes.audit import router as audit_router
 from routes.health import router as health_router
 
@@ -53,6 +55,8 @@ app.include_router(notes_router, prefix="/api")
 app.include_router(assistant_router, prefix="/api")
 app.include_router(treatment_plans_router, prefix="/api")
 app.include_router(billing_router, prefix="/api")
+app.include_router(authorizations_router, prefix="/api")
+app.include_router(credentialing_router, prefix="/api")
 app.include_router(audit_router, prefix="/api")
 app.include_router(health_router, prefix="/api")
 

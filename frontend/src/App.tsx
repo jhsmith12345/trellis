@@ -18,9 +18,15 @@ import SigningPage from "./pages/SigningPage";
 import SetupWizardPage from "./pages/SetupWizardPage";
 import SchedulePage from "./pages/SchedulePage";
 import NoteEditorPage from "./pages/NoteEditorPage";
+import ManualNotePage from "./pages/ManualNotePage";
 import TreatmentPlanEditorPage from "./pages/TreatmentPlanEditorPage";
 import BillingPage from "./pages/BillingPage";
+import FinancialReportsPage from "./pages/FinancialReportsPage";
+import ClaimReviewPage from "./pages/ClaimReviewPage";
+import DenialManagementPage from "./pages/DenialManagementPage";
+import BillingServicePage from "./pages/BillingServicePage";
 import AuditLogPage from "./pages/AuditLogPage";
+import CredentialingPage from "./pages/CredentialingPage";
 import TeamManagementPage from "./pages/TeamManagementPage";
 import ClientDashboardPage from "./pages/client/ClientDashboardPage";
 import ClientAppointmentsPage from "./pages/client/ClientAppointmentsPage";
@@ -98,12 +104,18 @@ function AppRoutes() {
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/clients" element={<ClientListPage />} />
         <Route path="/clients/:clientId" element={<ClientDetailPage />} />
+        <Route path="/notes/new" element={<ManualNotePage />} />
         <Route path="/notes/:noteId" element={<NoteEditorPage />} />
         <Route path="/treatment-plans/:planId" element={<TreatmentPlanEditorPage />} />
         <Route path="/schedule" element={<SchedulePage />} />
         <Route path="/billing" element={<BillingPage />} />
+        <Route path="/billing/reports" element={<FinancialReportsPage />} />
+        <Route path="/billing/claims/:superbillId/review" element={<ClaimReviewPage />} />
+        <Route path="/billing/denials" element={<DenialManagementPage />} />
         <Route path="/settings/practice" element={<PracticeSettingsPage />} />
         <Route path="/settings/team" element={<TeamManagementPage />} />
+        <Route path="/settings/billing-service" element={<BillingServicePage />} />
+        <Route path="/settings/credentialing" element={<CredentialingPage />} />
         <Route path="/settings/audit-log" element={<AuditLogPage />} />
       </Route>
 

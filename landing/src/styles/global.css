@@ -1,0 +1,145 @@
+@import "tailwindcss";
+
+@theme {
+  /* Primary — Deep sage/forest greens */
+  --color-sage-50: #f4f7f4;
+  --color-sage-100: #e6ede6;
+  --color-sage-200: #c9d9c9;
+  --color-sage-300: #a3bda3;
+  --color-sage-400: #7a9e7a;
+  --color-sage-500: #5a835a;
+  --color-sage-600: #466b46;
+  --color-sage-700: #3a573a;
+  --color-sage-800: #2f472f;
+  --color-sage-900: #1e2e1e;
+  --color-sage-950: #111c11;
+
+  /* Secondary — Warm earth / terracotta */
+  --color-terra-50: #fdf6f3;
+  --color-terra-100: #fae9e1;
+  --color-terra-200: #f5d0c0;
+  --color-terra-300: #ecb096;
+  --color-terra-400: #e08c6a;
+  --color-terra-500: #d4714d;
+  --color-terra-600: #c05a38;
+  --color-terra-700: #a04830;
+  --color-terra-800: #833d2d;
+  --color-terra-900: #6c3528;
+
+  /* Accents — Soft gold / amber */
+  --color-gold-50: #fdfbf3;
+  --color-gold-100: #faf3d8;
+  --color-gold-200: #f3e5ac;
+  --color-gold-300: #ead278;
+  --color-gold-400: #dfbc4c;
+  --color-gold-500: #d4a632;
+  --color-gold-600: #b88525;
+  --color-gold-700: #976420;
+  --color-gold-800: #7c5022;
+  --color-gold-900: #684221;
+
+  /* Warm neutrals */
+  --color-warm-50: #fdfcfa;
+  --color-warm-100: #f9f6f1;
+  --color-warm-200: #f0ebe2;
+  --color-warm-300: #e3dbd0;
+  --color-warm-400: #c9bfb1;
+  --color-warm-500: #ada192;
+  --color-warm-600: #8f8173;
+  --color-warm-700: #6e635a;
+  --color-warm-800: #504840;
+  --color-warm-900: #352f2a;
+  --color-warm-950: #1f1c19;
+
+  /* Font family */
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Google Fonts - Inter variable */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuLyfMZhrib2Bg-4.woff2") format("woff2");
+}
+
+/* Base */
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  color: var(--color-warm-950);
+  background-color: var(--color-warm-50);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scroll-triggered animations */
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-on-scroll {
+  opacity: 0;
+}
+
+.animate-on-scroll.is-visible {
+  animation: fade-up 0.7s ease-out forwards;
+}
+
+.animate-fade-in {
+  opacity: 0;
+}
+
+.animate-fade-in.is-visible {
+  animation: fade-in 0.6s ease-out forwards;
+}
+
+.animate-scale-in {
+  opacity: 0;
+}
+
+.animate-scale-in.is-visible {
+  animation: scale-in 0.5s ease-out forwards;
+}
+
+/* Stagger delays */
+.delay-100 { animation-delay: 100ms; }
+.delay-200 { animation-delay: 200ms; }
+.delay-300 { animation-delay: 300ms; }
+.delay-400 { animation-delay: 400ms; }
+.delay-500 { animation-delay: 500ms; }
+.delay-600 { animation-delay: 600ms; }
+
+/* Hero background pattern */
+.hero-pattern {
+  background-image:
+    radial-gradient(ellipse at 20% 50%, rgba(90, 131, 90, 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 20%, rgba(212, 166, 50, 0.06) 0%, transparent 50%),
+    radial-gradient(ellipse at 60% 80%, rgba(192, 90, 56, 0.04) 0%, transparent 50%);
+}

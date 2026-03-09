@@ -8,6 +8,7 @@ interface IntakeData {
   name: string;
   preferredName: string;
   pronouns: string;
+  sex: string;
   dateOfBirth: string;
   emergencyContactName: string;
   emergencyContactPhone: string;
@@ -19,12 +20,22 @@ interface IntakeData {
   medicalConditions: string;
   goals: string;
   additionalNotes: string;
+  insurancePayerName: string;
+  insurancePayerId: string;
+  insuranceMemberId: string;
+  insuranceGroupNumber: string;
+  secondaryPayerName: string;
+  secondaryPayerId: string;
+  secondaryMemberId: string;
+  secondaryGroupNumber: string;
+  defaultModality: string;
 }
 
 const empty: IntakeData = {
   name: "",
   preferredName: "",
   pronouns: "",
+  sex: "",
   dateOfBirth: "",
   emergencyContactName: "",
   emergencyContactPhone: "",
@@ -36,6 +47,15 @@ const empty: IntakeData = {
   medicalConditions: "",
   goals: "",
   additionalNotes: "",
+  insurancePayerName: "",
+  insurancePayerId: "",
+  insuranceMemberId: "",
+  insuranceGroupNumber: "",
+  secondaryPayerName: "",
+  secondaryPayerId: "",
+  secondaryMemberId: "",
+  secondaryGroupNumber: "",
+  defaultModality: "telehealth",
 };
 
 function Field({
@@ -111,6 +131,7 @@ export function IntakeForm({ intakeMode: _intakeMode = "standard" }: { intakeMod
             name: data.name,
             preferredName: data.preferredName || null,
             pronouns: data.pronouns || null,
+            sex: data.sex || null,
             dateOfBirth: data.dateOfBirth,
             emergencyContact: {
               name: data.emergencyContactName || null,
@@ -125,6 +146,19 @@ export function IntakeForm({ intakeMode: _intakeMode = "standard" }: { intakeMod
             medications: data.medications || null,
             medicalConditions: data.medicalConditions || null,
           },
+          insurance: {
+            payerName: data.insurancePayerName || null,
+            payerId: data.insurancePayerId || null,
+            memberId: data.insuranceMemberId || null,
+            groupNumber: data.insuranceGroupNumber || null,
+          },
+          secondaryInsurance: {
+            payerName: data.secondaryPayerName || null,
+            payerId: data.secondaryPayerId || null,
+            memberId: data.secondaryMemberId || null,
+            groupNumber: data.secondaryGroupNumber || null,
+          },
+          defaultModality: data.defaultModality || null,
           goals: data.goals || null,
           additionalNotes: data.additionalNotes || null,
         }),
@@ -200,15 +234,30 @@ export function IntakeForm({ intakeMode: _intakeMode = "standard" }: { intakeMod
               />
             </Field>
           </div>
-          <Field label="Date of Birth" required>
-            <input
-              type="date"
-              required
-              value={data.dateOfBirth}
-              onChange={(e) => set("dateOfBirth", e.target.value)}
-              className={inputClass}
-            />
-          </Field>
+          <div className="grid sm:grid-cols-2 gap-4">
+            <Field label="Sex (for insurance forms)">
+              <select
+                value={data.sex}
+                onChange={(e) => set("sex", e.target.value)}
+                className={inputClass}
+              >
+                <option value="">Select...</option>
+                <option value="M">Male</option>
+                <option value="F">Female</option>
+                <option value="X">Non-binary</option>
+                <option value="U">Prefer not to say</option>
+              </select>
+            </Field>
+            <Field label="Date of Birth" required>
+              <input
+                type="date"
+                required
+                value={data.dateOfBirth}
+                onChange={(e) => set("dateOfBirth", e.target.value)}
+                className={inputClass}
+              />
+            </Field>
+          </div>
         </div>
       </fieldset>
 
@@ -300,6 +349,101 @@ export function IntakeForm({ intakeMode: _intakeMode = "standard" }: { intakeMod
               className={inputClass}
               placeholder="Any relevant medical conditions"
             />
+          </Field>
+        </div>
+      </fieldset>
+
+      {/* Insurance */}
+      <fieldset className="mb-10">
+        <legend className="text-lg font-semibold text-warm-700 mb-4 pb-2 border-b border-warm-100 w-full">
+          Insurance
+        </legend>
+        <div className="space-y-4">
+          <Field label="Insurance Company">
+            <input
+              value={data.insurancePayerName}
+              onChange={(e) => set("insurancePayerName", e.target.value)}
+              className={inputClass}
+              placeholder="e.g. Blue Cross Blue Shield, Aetna, or Self-pay"
+            />
+          </Field>
+          {data.insurancePayerName && data.insurancePayerName.toLowerCase() !== "self-pay" && (
+            <>
+              <div className="grid sm:grid-cols-2 gap-4">
+                <Field label="Member ID">
+                  <input
+                    value={data.insuranceMemberId}
+                    onChange={(e) => set("insuranceMemberId", e.target.value)}
+                    className={inputClass}
+                    placeholder="From your insurance card"
+                  />
+                </Field>
+                <Field label="Group Number">
+                  <input
+                    value={data.insuranceGroupNumber}
+                    onChange={(e) => set("insuranceGroupNumber", e.target.value)}
+                    className={inputClass}
+                  />
+                </Field>
+              </div>
+              <Field label="Payer ID (if known)">
+                <input
+                  value={data.insurancePayerId}
+                  onChange={(e) => set("insurancePayerId", e.target.value)}
+                  className={inputClass}
+                  placeholder="Electronic payer ID (optional)"
+                />
+              </Field>
+              <div className="mt-4 pt-4 border-t border-warm-100">
+                <p className="text-sm font-medium text-warm-600 mb-3">Secondary Insurance (if applicable)</p>
+                <div className="space-y-4">
+                  <Field label="Secondary Insurance Company">
+                    <input
+                      value={data.secondaryPayerName}
+                      onChange={(e) => set("secondaryPayerName", e.target.value)}
+                      className={inputClass}
+                    />
+                  </Field>
+                  {data.secondaryPayerName && (
+                    <div className="grid sm:grid-cols-2 gap-4">
+                      <Field label="Secondary Member ID">
+                        <input
+                          value={data.secondaryMemberId}
+                          onChange={(e) => set("secondaryMemberId", e.target.value)}
+                          className={inputClass}
+                        />
+                      </Field>
+                      <Field label="Secondary Group Number">
+                        <input
+                          value={data.secondaryGroupNumber}
+                          onChange={(e) => set("secondaryGroupNumber", e.target.value)}
+                          className={inputClass}
+                        />
+                      </Field>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </fieldset>
+
+      {/* Session Preferences */}
+      <fieldset className="mb-10">
+        <legend className="text-lg font-semibold text-warm-700 mb-4 pb-2 border-b border-warm-100 w-full">
+          Session Preferences
+        </legend>
+        <div className="space-y-4">
+          <Field label="Preferred Session Format">
+            <select
+              value={data.defaultModality}
+              onChange={(e) => set("defaultModality", e.target.value)}
+              className={inputClass}
+            >
+              <option value="telehealth">Telehealth (video)</option>
+              <option value="in_office">In-office</option>
+            </select>
           </Field>
         </div>
       </fieldset>

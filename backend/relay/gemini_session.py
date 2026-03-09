@@ -28,17 +28,23 @@ information through natural conversation — do not read from a list, make it co
 
 1. First, introduce yourself and ask their name and preferred pronouns
 2. Date of birth
-3. Emergency contact (name, phone, relationship)
-4. What brings them in today (presenting concerns)
-5. Prior therapy experience
-6. Current medications
-7. Relevant medical conditions
-8. Goals for therapy
-9. Their insurance provider (or if they prefer to self-pay)
+3. Sex assigned at birth (for insurance/billing — explain it's needed for insurance forms, options: male, female, non-binary, or prefer not to say)
+4. Emergency contact (name, phone, relationship)
+5. What brings them in today (presenting concerns)
+6. Prior therapy experience
+7. Current medications
+8. Relevant medical conditions
+9. Goals for therapy
+10. Their insurance provider (or if they prefer to self-pay) — if insured, ask for payer/company name and member ID
+11. Secondary insurance (ask if they have a secondary/additional insurance plan)
+12. Session modality preference — ask whether they prefer telehealth (video) sessions or in-office visits
 
 Be warm, empathetic, and patient. Start by warmly greeting them and asking their name.
 If someone seems uncomfortable with a question, acknowledge that and offer to skip it.
 Confirm information back to them.
+
+When asking about sex assigned at birth, be sensitive: explain it's required for insurance
+claim forms (CMS-1500 Box 3) and is separate from their gender identity or pronouns.
 
 Do NOT output any JSON. Just have a natural conversation.
 
@@ -67,6 +73,11 @@ CONVERSATION APPROACH:
 - If they seem uncomfortable, acknowledge it: "I know these questions can be tough. We can \
 come back to that if you'd like."
 - Use natural transitions between topics, not abrupt pivots.
+
+ADDITIONAL DEMOGRAPHIC DETAILS TO GATHER (if not already known from form data):
+- Sex assigned at birth (needed for insurance claim forms — options: male, female, non-binary, or prefer not to say)
+- Secondary insurance (ask if they have additional coverage beyond their primary plan)
+- Session modality preference (telehealth/video vs in-person visits)
 
 INFORMATION TO GATHER (through natural conversation, not as a checklist):
 
@@ -217,6 +228,7 @@ EXTRACTION_PROMPT_TEMPLATE = (
     '  "demographics": {\n'
     '    "preferredName": "string or null",\n'
     '    "pronouns": "string or null",\n'
+    '    "sex": "M | F | X | U or null (M=male, F=female, X=non-binary, U=prefer not to say)",\n'
     '    "dateOfBirth": "string (YYYY-MM-DD) or null",\n'
     '    "emergencyContact": {\n'
     '      "name": "string or null",\n'
@@ -231,10 +243,23 @@ EXTRACTION_PROMPT_TEMPLATE = (
     '    "medications": "string or null",\n'
     '    "medicalConditions": "string or null"\n'
     '  },\n'
+    '  "insurance": {\n'
+    '    "payerName": "string or null",\n'
+    '    "memberId": "string or null",\n'
+    '    "groupNumber": "string or null"\n'
+    '  },\n'
+    '  "secondaryInsurance": {\n'
+    '    "payerName": "string or null",\n'
+    '    "memberId": "string or null",\n'
+    '    "groupNumber": "string or null"\n'
+    '  },\n'
+    '  "sessionModality": "telehealth | in_office or null",\n'
     '  "goals": "string or null",\n'
     '  "additionalNotes": "string or null"\n'
     '}\n\n'
-    "If information was not provided, use null. Do not guess or fabricate.\n\n"
+    "If information was not provided, use null. Do not guess or fabricate.\n"
+    "For sex: map male/man to M, female/woman to F, non-binary/other to X, "
+    "prefer not to say/declined to U.\n\n"
     "TRANSCRIPT:\n"
 )
 

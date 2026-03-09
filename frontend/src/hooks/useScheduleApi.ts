@@ -86,6 +86,7 @@ export function useScheduleApi() {
       type: string;
       scheduled_at: string;
       duration_minutes?: number;
+      modality?: string;
     }) => {
       const token = await getIdToken();
       return api<{
