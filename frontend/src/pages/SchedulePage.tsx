@@ -184,9 +184,8 @@ export default function SchedulePage() {
               Book an Appointment
             </h2>
             <BookingFlow
-              clientId={user?.uid || ""}
-              clientEmail={user?.email || ""}
-              clientName={user?.displayName || user?.email || ""}
+              clinicianId={user?.uid || ""}
+              clinicianEmail={user?.email || ""}
               getSlots={api.getSlots}
               onBook={async (data) => {
                 await api.bookAppointment(data);

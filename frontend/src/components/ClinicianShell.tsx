@@ -267,6 +267,26 @@ export function ClinicianShell() {
               </button>
             </div>
             <div className="flex-1 px-3 py-4 space-y-1 overflow-auto">
+              {NAV_ITEMS.filter((item) => item.to !== "/billing" || canSeeAdmin).map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                      isActive
+                        ? "bg-teal-50 text-teal-700"
+                        : "text-warm-500 hover:text-warm-700 hover:bg-warm-50"
+                    }`
+                  }
+                >
+                  {item.icon}
+                  {item.label}
+                </NavLink>
+              ))}
+
+              <div className="border-t border-warm-100 my-2" />
+
               <button
                 onClick={() => {
                   setMobileMenuOpen(false);

@@ -51,6 +51,7 @@ const REQUIRED_APIS = [
   "aiplatform.googleapis.com",
   "cloudscheduler.googleapis.com",
   "secretmanager.googleapis.com",
+  "artifactregistry.googleapis.com",
 ];
 
 const DELEGATION_SCOPES = [
@@ -98,6 +99,7 @@ function generateDeployScript(config: WizardConfig): string {
 #
 # This script deploys Trellis into your GCP project. Prerequisites:
 #   - gcloud CLI installed and authenticated
+#   - Docker installed and running
 #   - sa-key.json in the current directory
 #   - Trellis repository cloned (this should be run from the repo root)
 #   - APIs enabled (done in wizard)
@@ -125,10 +127,13 @@ CRON_SECRET="${cronSecret}"
 # Firebase config (for frontend build)
 FIREBASE_API_KEY="${config.firebaseApiKey}"
 FIREBASE_AUTH_DOMAIN="${config.firebaseAuthDomain}"
-FIREBASE_PROJECT_ID="${config.firebaseProjectId}"
+FIREBASE_PROJECT_ID="${p}"
 FIREBASE_STORAGE_BUCKET="${config.firebaseStorageBucket}"
 FIREBASE_MESSAGING_SENDER_ID="${config.firebaseMessagingSenderId}"
 FIREBASE_APP_ID="${config.firebaseAppId}"
+
+# Derived
+REGISTRY="\${REGION}-docker.pkg.dev/\${PROJECT_ID}/trellis"
 
 # \u2500\u2500 Color output helpers \u2500\u2500
 RED='\\033[0;31m'
@@ -147,6 +152,7 @@ info "Running preflight checks..."
 
 command -v gcloud >/dev/null 2>&1 || error "gcloud CLI not found. Install: https://cloud.google.com/sdk/docs/install"
 command -v docker >/dev/null 2>&1 || error "Docker not found. Install: https://docs.docker.com/get-docker/"
+command -v psql >/dev/null 2>&1 || error "psql not found. Install PostgreSQL client tools."
 
 if [ ! -f "sa-key.json" ]; then
     error "sa-key.json not found in current directory. Download it from GCP Console."
@@ -161,7 +167,25 @@ gcloud config set project "\${PROJECT_ID}"
 ok "GCP project set to \${PROJECT_ID}"
 
 # ============================================================================
-# 1. CLOUD SQL
+# 1. ARTIFACT REGISTRY
+# ============================================================================
+info "Setting up Artifact Registry..."
+
+gcloud artifacts repositories describe trellis \\
+    --project="\${PROJECT_ID}" \\
+    --location="\${REGION}" >/dev/null 2>&1 || \\
+gcloud artifacts repositories create trellis \\
+    --project="\${PROJECT_ID}" \\
+    --location="\${REGION}" \\
+    --repository-format=docker
+ok "Artifact Registry repository ready"
+
+# Configure Docker to authenticate with Artifact Registry
+gcloud auth configure-docker "\${REGION}-docker.pkg.dev" --quiet
+ok "Docker auth configured for Artifact Registry"
+
+# ============================================================================
+# 2. CLOUD SQL
 # ============================================================================
 info "Setting up Cloud SQL..."
 
@@ -184,8 +208,7 @@ else
         --maintenance-window-day=SUN \\
         --maintenance-window-hour=5 \\
         --availability-type=zonal \\
-        --no-assign-ip \\
-        --network=default
+        --assign-ip
 
     ok "Cloud SQL instance created"
 fi
@@ -217,6 +240,8 @@ ok "Database user configured"
 
 # \u2500\u2500 Run migrations \u2500\u2500
 info "Running database migrations..."
+
+# Get public IP for migrations
 DB_IP=\$(gcloud sql instances describe "\${DB_INSTANCE}" \\
     --project="\${PROJECT_ID}" --format="value(ipAddresses[0].ipAddress)")
 
@@ -241,9 +266,10 @@ gcloud sql instances patch "\${DB_INSTANCE}" \\
     --project="\${PROJECT_ID}" \\
     --clear-authorized-networks \\
     --quiet
+ok "Temporary network access removed"
 
 # ============================================================================
-# 2. SECRETS
+# 3. SECRETS
 # ============================================================================
 info "Configuring secrets..."
 
@@ -263,24 +289,23 @@ gcloud secrets add-iam-policy-binding sa-key \\
     --role="roles/secretmanager.secretAccessor"
 
 # ============================================================================
-# 3. BUILD AND DEPLOY CLOUD RUN SERVICES
+# 4. BUILD AND DEPLOY CLOUD RUN SERVICES
 # ============================================================================
 info "Building and deploying services..."
 
 # \u2500\u2500 API Service \u2500\u2500
 info "Building API service..."
-gcloud builds submit \\
-    --project="\${PROJECT_ID}" \\
-    --tag="\${REGION}-docker.pkg.dev/\${PROJECT_ID}/trellis/api:latest" \\
-    --gcs-log-dir="gs://\${PROJECT_ID}_cloudbuild/logs" \\
+docker build -t "\${REGISTRY}/api:latest" \\
     -f backend/api/Dockerfile \\
     backend/
+docker push "\${REGISTRY}/api:latest"
+ok "API image pushed"
 
 info "Deploying API service to Cloud Run..."
 gcloud run deploy trellis-api \\
     --project="\${PROJECT_ID}" \\
     --region="\${REGION}" \\
-    --image="\${REGION}-docker.pkg.dev/\${PROJECT_ID}/trellis/api:latest" \\
+    --image="\${REGISTRY}/api:latest" \\
     --platform=managed \\
     --allow-unauthenticated \\
     --port=8080 \\
@@ -312,18 +337,17 @@ info "API URL: \${API_URL}"
 
 # \u2500\u2500 Relay Service \u2500\u2500
 info "Building relay service..."
-gcloud builds submit \\
-    --project="\${PROJECT_ID}" \\
-    --tag="\${REGION}-docker.pkg.dev/\${PROJECT_ID}/trellis/relay:latest" \\
-    --gcs-log-dir="gs://\${PROJECT_ID}_cloudbuild/logs" \\
+docker build -t "\${REGISTRY}/relay:latest" \\
     -f backend/relay/Dockerfile \\
     backend/
+docker push "\${REGISTRY}/relay:latest"
+ok "Relay image pushed"
 
 info "Deploying relay service to Cloud Run..."
 gcloud run deploy trellis-relay \\
     --project="\${PROJECT_ID}" \\
     --region="\${REGION}" \\
-    --image="\${REGION}-docker.pkg.dev/\${PROJECT_ID}/trellis/relay:latest" \\
+    --image="\${REGISTRY}/relay:latest" \\
     --platform=managed \\
     --allow-unauthenticated \\
     --port=8080 \\
@@ -356,26 +380,25 @@ info "Relay URL: \${RELAY_URL}"
 
 # \u2500\u2500 Frontend Service \u2500\u2500
 info "Building frontend..."
-gcloud builds submit \\
-    --project="\${PROJECT_ID}" \\
-    --tag="\${REGION}-docker.pkg.dev/\${PROJECT_ID}/trellis/frontend:latest" \\
-    --gcs-log-dir="gs://\${PROJECT_ID}_cloudbuild/logs" \\
+docker build -t "\${REGISTRY}/frontend:latest" \\
     -f frontend/Dockerfile \\
-    frontend/ \\
-    --build-arg="VITE_FIREBASE_API_KEY=\${FIREBASE_API_KEY}" \\
-    --build-arg="VITE_FIREBASE_AUTH_DOMAIN=\${FIREBASE_AUTH_DOMAIN}" \\
-    --build-arg="VITE_FIREBASE_PROJECT_ID=\${FIREBASE_PROJECT_ID}" \\
-    --build-arg="VITE_FIREBASE_STORAGE_BUCKET=\${FIREBASE_STORAGE_BUCKET}" \\
-    --build-arg="VITE_FIREBASE_MESSAGING_SENDER_ID=\${FIREBASE_MESSAGING_SENDER_ID}" \\
-    --build-arg="VITE_FIREBASE_APP_ID=\${FIREBASE_APP_ID}" \\
-    --build-arg="VITE_API_URL=\${API_URL}" \\
-    --build-arg="VITE_WS_URL=\${RELAY_URL}"
+    --build-arg VITE_FIREBASE_API_KEY="\${FIREBASE_API_KEY}" \\
+    --build-arg VITE_FIREBASE_AUTH_DOMAIN="\${FIREBASE_AUTH_DOMAIN}" \\
+    --build-arg VITE_FIREBASE_PROJECT_ID="\${FIREBASE_PROJECT_ID}" \\
+    --build-arg VITE_FIREBASE_STORAGE_BUCKET="\${FIREBASE_STORAGE_BUCKET}" \\
+    --build-arg VITE_FIREBASE_MESSAGING_SENDER_ID="\${FIREBASE_MESSAGING_SENDER_ID}" \\
+    --build-arg VITE_FIREBASE_APP_ID="\${FIREBASE_APP_ID}" \\
+    --build-arg VITE_API_URL="\${API_URL}" \\
+    --build-arg VITE_WS_URL="\${RELAY_URL}" \\
+    frontend/
+docker push "\${REGISTRY}/frontend:latest"
+ok "Frontend image pushed"
 
 info "Deploying frontend to Cloud Run..."
 gcloud run deploy trellis-frontend \\
     --project="\${PROJECT_ID}" \\
     --region="\${REGION}" \\
-    --image="\${REGION}-docker.pkg.dev/\${PROJECT_ID}/trellis/frontend:latest" \\
+    --image="\${REGISTRY}/frontend:latest" \\
     --platform=managed \\
     --allow-unauthenticated \\
     --port=8080 \\
@@ -389,18 +412,6 @@ FRONTEND_URL=\$(gcloud run services describe trellis-frontend \\
     --project="\${PROJECT_ID}" --region="\${REGION}" \\
     --format="value(status.url)")
 info "Frontend URL: \${FRONTEND_URL}"
-
-# ============================================================================
-# 4. ARTIFACT REGISTRY (create repo if not exists)
-# ============================================================================
-gcloud artifacts repositories describe trellis \\
-    --project="\${PROJECT_ID}" \\
-    --location="\${REGION}" >/dev/null 2>&1 || \\
-gcloud artifacts repositories create trellis \\
-    --project="\${PROJECT_ID}" \\
-    --location="\${REGION}" \\
-    --repository-format=docker
-ok "Artifact Registry repository ready"
 
 # ============================================================================
 # 5. CLOUD SCHEDULER (cron jobs)
@@ -519,7 +530,19 @@ gcloud run domain-mappings create \\
     warn "Domain mapping may already exist or require verification."
 
 # ============================================================================
-# 7. VERIFY DEPLOYMENT
+# 7. SECURITY HARDENING
+# ============================================================================
+info "Applying security hardening..."
+
+# Remove public IP access from Cloud SQL (Cloud Run uses Cloud SQL Connector)
+gcloud sql instances patch "\${DB_INSTANCE}" \\
+    --project="\${PROJECT_ID}" \\
+    --clear-authorized-networks \\
+    --quiet
+ok "Cloud SQL public access locked down"
+
+# ============================================================================
+# 8. VERIFY DEPLOYMENT
 # ============================================================================
 info "Running health check..."
 sleep 10  # Wait for services to stabilize
@@ -550,10 +573,11 @@ echo "    (This may take up to 24 hours to propagate)"
 echo ""
 echo "  Next steps:"
 echo "    1. Add the DNS record above"
-echo "    2. Enable Meet auto-recording in Workspace Admin Console"
-echo "    3. Visit https://\${DOMAIN} and sign in as the clinician"
-echo "    4. Select 'Clinician' role and complete practice profile setup"
-echo "    5. Share your Trellis URL with clients!"
+echo "    2. Add https://\${DOMAIN} to Firebase authorized domains"
+echo "    3. Enable Meet auto-recording in Workspace Admin Console"
+echo "    4. Visit https://\${DOMAIN} and sign in as the clinician"
+echo "    5. Select 'Clinician' role and complete practice profile setup"
+echo "    6. Share your Trellis URL with clients!"
 echo ""
 echo -e "  \${YELLOW}Important:\${NC}"
 echo "    - Keep sa-key.json secure (do not commit to git)"

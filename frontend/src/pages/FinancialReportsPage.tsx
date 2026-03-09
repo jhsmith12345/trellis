@@ -603,7 +603,7 @@ export default function FinancialReportsPage() {
     setError(null);
     try {
       const result = await api.get<ReportsData>(
-        `/billing/reports?from_date=${fromDate}&to_date=${toDate}`
+        `/api/billing/reports?from_date=${fromDate}&to_date=${toDate}`
       );
       setData(result);
     } catch (err: unknown) {
