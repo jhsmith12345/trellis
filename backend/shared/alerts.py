@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 BD_EMAIL = os.getenv("BD_ALERT_EMAIL", "")
 
 
-def notify_bd_new_intake(
+async def notify_bd_new_intake(
     client_name: str,
     source: str,
     transcript: str,
@@ -118,7 +118,7 @@ Trellis — AI-Native Behavioral Health
         return
 
     try:
-        send_email(
+        await send_email(
             to=BD_EMAIL,
             subject=f"New Intake: {client_name} ({source_label})",
             html_body=html,

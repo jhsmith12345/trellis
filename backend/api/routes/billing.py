@@ -638,7 +638,7 @@ async def generate_superbill_for_note(
 async def generate_superbill(
     body: GenerateSuperbillRequest,
     request: Request,
-    user: dict = Depends(require_practice_member()),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Generate a superbill for a signed clinical note.
 
@@ -674,7 +674,7 @@ async def list_superbills(
     status: str | None = None,
     from_date: str | None = None,
     to_date: str | None = None,
-    user: dict = Depends(require_practice_member()),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """List superbills. Owners see all practice superbills; non-owners see only their own."""
     pool = await get_pool()
@@ -754,7 +754,7 @@ async def list_superbills(
 async def list_client_superbills(
     client_id: str,
     request: Request,
-    user: dict = Depends(require_practice_member()),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """List superbills for a specific client. Clinician only.
 
@@ -892,7 +892,7 @@ async def download_my_superbill_pdf(
 @router.get("/superbills/summary")
 async def get_superbills_summary(
     request: Request,
-    user: dict = Depends(require_practice_member()),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Enhanced billing summary with A/R aging, collections, and metrics. Clinician only."""
     pool = await get_pool()
@@ -1004,7 +1004,7 @@ async def get_superbills_summary(
 @router.get("/superbills/filing-deadlines")
 async def get_filing_deadlines(
     request: Request,
-    user: dict = Depends(require_role("clinician")),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Return superbills at risk of missing payer filing deadlines.
 
@@ -1076,7 +1076,7 @@ async def get_financial_reports(
     request: Request,
     from_date: str | None = Query(None, description="Start date (YYYY-MM-DD)"),
     to_date: str | None = Query(None, description="End date (YYYY-MM-DD)"),
-    user: dict = Depends(require_practice_member()),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Comprehensive financial reports data for the reports dashboard.
 
@@ -1340,7 +1340,7 @@ async def get_financial_reports(
 async def get_superbill(
     superbill_id: str,
     request: Request,
-    user: dict = Depends(require_practice_member()),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Get superbill details. Clinician only."""
     pool = await get_pool()
@@ -1376,7 +1376,7 @@ async def get_superbill(
 async def download_superbill_pdf(
     superbill_id: str,
     request: Request,
-    user: dict = Depends(require_practice_member()),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Download the superbill PDF. Clinician only."""
     pool = await get_pool()
@@ -1416,7 +1416,7 @@ async def download_superbill_pdf(
 async def download_cms1500_pdf(
     superbill_id: str,
     request: Request,
-    user: dict = Depends(require_practice_member()),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Download a CMS-1500 claim form PDF for a superbill. Clinician only."""
     pool = await get_pool()
@@ -1485,7 +1485,7 @@ async def download_cms1500_pdf(
 async def get_cms1500_data(
     superbill_id: str,
     request: Request,
-    user: dict = Depends(require_practice_member()),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Return structured JSON of all CMS-1500 field values. Clinician only."""
     pool = await get_pool()
@@ -1526,7 +1526,7 @@ async def get_cms1500_data(
 async def download_edi837(
     superbill_id: str,
     request: Request,
-    user: dict = Depends(require_practice_member()),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Download an ANSI X12 837P EDI file for a single superbill. Clinician only."""
     pool = await get_pool()
@@ -1587,7 +1587,7 @@ async def download_edi837(
 async def download_batch_edi837(
     body: BatchEdi837Request,
     request: Request,
-    user: dict = Depends(require_practice_member()),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Download a combined ANSI X12 837P EDI file for multiple superbills. Clinician only."""
     if not body.superbill_ids:
@@ -1659,7 +1659,7 @@ async def update_superbill_status(
     superbill_id: str,
     body: UpdateStatusRequest,
     request: Request,
-    user: dict = Depends(require_practice_member()),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Update superbill billing status and payment info. Clinician only.
 
@@ -1732,7 +1732,7 @@ class BatchStatusRequest(BaseModel):
 async def batch_update_status(
     body: BatchStatusRequest,
     request: Request,
-    user: dict = Depends(require_practice_member()),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Update billing status for multiple superbills at once. Clinician only."""
     valid_statuses = {"generated", "submitted", "paid", "outstanding"}
@@ -1832,7 +1832,7 @@ async def update_superbill(
     superbill_id: str,
     body: UpdateSuperbillRequest,
     request: Request,
-    user: dict = Depends(require_practice_member()),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Update superbill claim fields before submission. Clinician only.
 
@@ -1992,7 +1992,7 @@ async def email_superbill(
     superbill_id: str,
     body: EmailSuperbillRequest,
     request: Request,
-    user: dict = Depends(require_practice_member()),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Email superbill PDF to client for OON reimbursement. Clinician only."""
     pool = await get_pool()
@@ -2076,7 +2076,7 @@ async def email_superbill(
     # Send email with PDF attachment
     try:
         from mailer import send_email_with_attachment
-        send_email_with_attachment(
+        await send_email_with_attachment(
             to=recipient,
             subject=subject,
             html_body=html_body,
@@ -2084,16 +2084,18 @@ async def email_superbill(
             attachment_data=bytes(row["pdf_data"]),
             attachment_filename=f"superbill_{dos.strftime('%Y%m%d') if hasattr(dos, 'strftime') else dos}_{row['cpt_code']}.pdf",
             attachment_mime_type="application/pdf",
+            clinician_uid=user["uid"],
         )
     except ImportError:
         # Fallback: send email without attachment (link to download)
         try:
             from mailer import send_email
-            send_email(
+            await send_email(
                 to=recipient,
                 subject=subject,
                 html_body=html_body,
                 text_body=text_body,
+                clinician_uid=user["uid"],
             )
         except Exception as e:
             logger.error("Failed to send superbill email: %s", e)
@@ -2192,7 +2194,7 @@ async def generate_statement(
     request: Request,
     from_date: date | None = Query(None),
     to_date: date | None = Query(None),
-    user: dict = Depends(require_practice_member()),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Generate a patient statement PDF for a client's date range.
 
@@ -2245,7 +2247,7 @@ async def email_statement(
     request: Request,
     from_date: date | None = Query(None),
     to_date: date | None = Query(None),
-    user: dict = Depends(require_practice_member()),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Generate and email a patient statement PDF to the client. Clinician only."""
     effective_to = to_date or date.today()
@@ -2345,7 +2347,7 @@ async def email_statement(
     filename = f"statement_{effective_to.strftime('%Y%m%d')}.pdf"
     try:
         from mailer import send_email_with_attachment
-        send_email_with_attachment(
+        await send_email_with_attachment(
             to=recipient,
             subject=subject,
             html_body=html_body,
@@ -2353,15 +2355,17 @@ async def email_statement(
             attachment_data=bytes(pdf_bytes),
             attachment_filename=filename,
             attachment_mime_type="application/pdf",
+            clinician_uid=user["uid"],
         )
     except ImportError:
         try:
             from mailer import send_email
-            send_email(
+            await send_email(
                 to=recipient,
                 subject=subject,
                 html_body=html_body,
                 text_body=text_body,
+                clinician_uid=user["uid"],
             )
         except Exception as e:
             logger.error("Failed to send statement email: %s", e)
@@ -2409,7 +2413,7 @@ class BillingSettingsUpdateRequest(BaseModel):
 @router.get("/billing/settings")
 async def get_billing_settings(
     request: Request,
-    user: dict = Depends(require_practice_member()),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Get billing service settings for the current practice."""
     practice_id = user.get("practice_id")
@@ -2439,7 +2443,7 @@ async def get_billing_settings(
 async def update_billing_settings_endpoint(
     body: BillingSettingsUpdateRequest,
     request: Request,
-    user: dict = Depends(require_practice_member()),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Update billing service settings (connect/disconnect/configure)."""
     practice_id = user.get("practice_id")
@@ -2485,7 +2489,7 @@ async def update_billing_settings_endpoint(
 async def submit_claim_to_billing(
     superbill_id: str,
     request: Request,
-    user: dict = Depends(require_practice_member()),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Manually submit a superbill to the billing service as a claim.
 
@@ -2575,7 +2579,7 @@ async def create_payment_link(
     superbill_id: str,
     body: CreatePaymentLinkRequest,
     request: Request,
-    user: dict = Depends(require_practice_member()),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Generate a Stripe payment link for the patient balance on a superbill.
 
@@ -2666,7 +2670,7 @@ async def create_payment_link(
 async def get_superbill_payments(
     superbill_id: str,
     request: Request,
-    user: dict = Depends(require_practice_member()),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Get payment status for a superbill from the billing service.
 
@@ -2737,7 +2741,7 @@ async def get_superbill_payments(
 @router.get("/billing/outstanding-balances")
 async def get_outstanding_balances(
     request: Request,
-    user: dict = Depends(require_practice_member()),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Get all clients with outstanding patient balances.
 
@@ -2816,7 +2820,7 @@ async def get_outstanding_balances(
 async def get_superbill_era(
     superbill_id: str,
     request: Request,
-    user: dict = Depends(require_practice_member()),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Fetch ERA / payment posting details for a superbill from the billing service.
 
@@ -2861,7 +2865,7 @@ async def get_superbill_era(
 async def check_client_eligibility(
     client_id: str,
     request: Request,
-    user: dict = Depends(require_practice_member()),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Check insurance eligibility for a client via the billing service."""
     practice_id = user.get("practice_id")
@@ -2946,7 +2950,7 @@ class ResubmitDenialRequest(BaseModel):
 @router.get("/billing/denials/analytics")
 async def get_denial_analytics(
     request: Request,
-    user: dict = Depends(require_practice_member()),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Proxy to billing service denial analytics.
 
@@ -2986,7 +2990,7 @@ async def get_denial_analytics(
 async def get_denial_detail(
     claim_id: str,
     request: Request,
-    user: dict = Depends(require_practice_member()),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Proxy to billing service denial detail for a specific claim.
 
@@ -3030,7 +3034,7 @@ async def list_denials(
     request: Request,
     category: Optional[str] = Query(None, description="Filter by denial category"),
     payer: Optional[str] = Query(None, description="Filter by payer name"),
-    user: dict = Depends(require_practice_member()),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Proxy to billing service denied claims list.
 
@@ -3074,7 +3078,7 @@ async def resubmit_denied_claim(
     claim_id: str,
     body: ResubmitDenialRequest,
     request: Request,
-    user: dict = Depends(require_practice_member()),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Correct and resubmit a denied claim via the billing service.
 

@@ -1,4 +1,4 @@
-"""Email sending via Gmail API with service account domain-wide delegation."""
+"""Email sending via Gmail API — OAuth 2.0 with SA delegation fallback."""
 import base64
 import logging
 import os
@@ -21,10 +21,10 @@ SA_KEY_JSON = os.getenv("SA_KEY_JSON", "")
 
 
 def _get_gmail_service():
-    """Build Gmail API service with delegated credentials.
+    """Build Gmail API service with SA delegated credentials (legacy).
 
-    Loads SA credentials from: SA_KEY_JSON env var (Cloud Run),
-    or sa-key.json file (local dev).
+    Kept for health checks and backward compatibility.
+    New code should use _get_gmail_service_oauth().
     """
     if SA_KEY_JSON:
         import json
@@ -41,7 +41,38 @@ def _get_gmail_service():
     return build("gmail", "v1", credentials=delegated, cache_discovery=False)
 
 
-def send_email(to: str, subject: str, html_body: str, text_body: str | None = None):
+async def _resolve_gmail_service(clinician_uid: str | None = None):
+    """Resolve Gmail service via OAuth or SA delegation.
+
+    Returns (service, sender_email) tuple.
+    """
+    if clinician_uid:
+        try:
+            from google_creds import get_google_credentials
+            creds = await get_google_credentials(
+                clinician_uid=clinician_uid,
+                scopes=SCOPES,
+            )
+            service = build("gmail", "v1", credentials=creds, cache_discovery=False)
+            # Get the sender email from the connected Google account
+            from db import get_clinician_oauth
+            oauth_data = await get_clinician_oauth(clinician_uid)
+            sender = (oauth_data or {}).get("google_email") or SENDER_EMAIL
+            return service, sender
+        except Exception:
+            # If OAuth fails, fall through to SA delegation
+            logger.warning("OAuth Gmail resolution failed for clinician, falling back to SA")
+
+    return _get_gmail_service(), SENDER_EMAIL
+
+
+async def send_email(
+    to: str,
+    subject: str,
+    html_body: str,
+    text_body: str | None = None,
+    clinician_uid: str | None = None,
+):
     """Send an email via Gmail API.
 
     Args:
@@ -49,10 +80,13 @@ def send_email(to: str, subject: str, html_body: str, text_body: str | None = No
         subject: Email subject line
         html_body: HTML body content
         text_body: Optional plain-text fallback
+        clinician_uid: Optional clinician UID for OAuth credential resolution
     """
+    service, sender = await _resolve_gmail_service(clinician_uid)
+
     msg = MIMEMultipart("alternative")
     msg["To"] = to
-    msg["From"] = SENDER_EMAIL
+    msg["From"] = sender
     msg["Subject"] = subject
 
     if text_body:
@@ -62,7 +96,6 @@ def send_email(to: str, subject: str, html_body: str, text_body: str | None = No
     raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
 
     try:
-        service = _get_gmail_service()
         service.users().messages().send(
             userId="me",
             body={"raw": raw},
@@ -74,7 +107,7 @@ def send_email(to: str, subject: str, html_body: str, text_body: str | None = No
         raise
 
 
-def send_email_with_attachment(
+async def send_email_with_attachment(
     to: str,
     subject: str,
     html_body: str,
@@ -82,6 +115,7 @@ def send_email_with_attachment(
     attachment_data: bytes | None = None,
     attachment_filename: str = "attachment.pdf",
     attachment_mime_type: str = "application/pdf",
+    clinician_uid: str | None = None,
 ):
     """Send an email with a file attachment via Gmail API.
 
@@ -93,10 +127,13 @@ def send_email_with_attachment(
         attachment_data: File content as bytes
         attachment_filename: Filename for the attachment
         attachment_mime_type: MIME type of the attachment
+        clinician_uid: Optional clinician UID for OAuth credential resolution
     """
+    service, sender = await _resolve_gmail_service(clinician_uid)
+
     msg = MIMEMultipart("mixed")
     msg["To"] = to
-    msg["From"] = SENDER_EMAIL
+    msg["From"] = sender
     msg["Subject"] = subject
 
     # Body part (alternative: text + html)
@@ -122,7 +159,6 @@ def send_email_with_attachment(
     raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
 
     try:
-        service = _get_gmail_service()
         service.users().messages().send(
             userId="me",
             body={"raw": raw},

@@ -20,7 +20,7 @@ from mailer import send_email
 logger = logging.getLogger(__name__)
 
 
-def send_clinician_confirmation(
+async def send_clinician_confirmation(
     clinician_email: str,
     clinician_name: str,
     practice_name: str,
@@ -31,6 +31,7 @@ def send_clinician_confirmation(
     duration_minutes: int,
     transcript: str,
     appointment_id: str | None = None,
+    clinician_uid: str | None = None,
 ) -> None:
     """Send the clinician a confirmation email with client intake metadata.
 
@@ -143,11 +144,12 @@ Trellis EHR — AI-Powered Practice Management
 """
 
     try:
-        send_email(
+        await send_email(
             to=clinician_email,
             subject=subject,
             html_body=html,
             text_body=text,
+            clinician_uid=clinician_uid,
         )
         # PHI-safe: do not log email addresses or client names
         logger.info("Clinician confirmation email sent successfully")
@@ -155,7 +157,7 @@ Trellis EHR — AI-Powered Practice Management
         logger.error("Failed to send clinician confirmation: %s", type(e).__name__)
 
 
-def send_client_confirmation(
+async def send_client_confirmation(
     client_email: str,
     client_name: str,
     clinician_name: str,
@@ -163,6 +165,7 @@ def send_client_confirmation(
     scheduled_at: str,
     meet_link: str | None,
     duration_minutes: int,
+    clinician_uid: str | None = None,
 ) -> None:
     """Send the client a confirmation email with appointment details.
 
@@ -275,11 +278,12 @@ Trellis EHR — AI-Powered Practice Management
 """
 
     try:
-        send_email(
+        await send_email(
             to=client_email,
             subject=subject,
             html_body=html,
             text_body=text,
+            clinician_uid=clinician_uid,
         )
         # PHI-safe: do not log email addresses
         logger.info("Client confirmation email sent successfully")

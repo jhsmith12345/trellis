@@ -35,7 +35,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
 
-from auth import require_role
+from auth import require_role, require_practice_member
 
 sys.path.insert(0, "../shared")
 from db import (
@@ -152,7 +152,7 @@ def _b64_decode(data: str) -> bytes:
 async def create_payer(
     body: CreatePayerRequest,
     request: Request,
-    user: dict = Depends(require_role("clinician")),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Create a new payer enrollment record."""
     practice = await get_practice_profile(user["uid"])
@@ -194,7 +194,7 @@ async def create_payer(
 async def list_payers(
     request: Request,
     status: str | None = None,
-    user: dict = Depends(require_role("clinician")),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """List all payer enrollments for the clinician's practice."""
     practice = await get_practice_profile(user["uid"])
@@ -222,7 +222,7 @@ async def list_payers(
 @router.get("/credentialing/alerts")
 async def get_alerts(
     request: Request,
-    user: dict = Depends(require_role("clinician")),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Get credentialing alerts: expiring credentials + stale applications."""
     practice = await get_practice_profile(user["uid"])
@@ -248,7 +248,7 @@ async def get_alerts(
 async def get_payer(
     payer_id: str,
     request: Request,
-    user: dict = Depends(require_role("clinician")),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Get a single payer enrollment with timeline events."""
     payer = await get_credentialing_payer(payer_id)
@@ -277,7 +277,7 @@ async def update_payer(
     payer_id: str,
     body: UpdatePayerRequest,
     request: Request,
-    user: dict = Depends(require_role("clinician")),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Update a payer enrollment record."""
     existing = await get_credentialing_payer(payer_id)
@@ -308,7 +308,7 @@ async def update_payer_status(
     payer_id: str,
     body: UpdateStatusRequest,
     request: Request,
-    user: dict = Depends(require_role("clinician")),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Update payer enrollment status with automatic date/timeline tracking."""
     valid_statuses = ("not_started", "gathering_docs", "application_submitted", "pending", "credentialed", "denied")
@@ -380,7 +380,7 @@ async def update_payer_status(
 async def delete_payer(
     payer_id: str,
     request: Request,
-    user: dict = Depends(require_role("clinician")),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Delete a payer enrollment record."""
     existing = await get_credentialing_payer(payer_id)
@@ -412,7 +412,7 @@ async def delete_payer(
 async def upload_document(
     body: UploadDocumentRequest,
     request: Request,
-    user: dict = Depends(require_role("clinician")),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Upload a credential document with AI extraction."""
     practice = await get_practice_profile(user["uid"])
@@ -495,7 +495,7 @@ async def list_documents(
     request: Request,
     payer_id: str | None = None,
     document_type: str | None = None,
-    user: dict = Depends(require_role("clinician")),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """List credential documents."""
     practice = await get_practice_profile(user["uid"])
@@ -525,7 +525,7 @@ async def list_documents(
 async def get_document(
     doc_id: str,
     request: Request,
-    user: dict = Depends(require_role("clinician")),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Get a credential document metadata."""
     doc = await get_credentialing_document(doc_id)
@@ -548,7 +548,7 @@ async def get_document(
 async def download_document(
     doc_id: str,
     request: Request,
-    user: dict = Depends(require_role("clinician")),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Download a credential document file."""
     doc = await get_credentialing_document_file(doc_id)
@@ -579,7 +579,7 @@ async def download_document(
 async def delete_document_endpoint(
     doc_id: str,
     request: Request,
-    user: dict = Depends(require_role("clinician")),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Delete a credential document."""
     existing = await get_credentialing_document(doc_id)
@@ -612,7 +612,7 @@ async def add_timeline_event(
     payer_id: str,
     body: AddTimelineEventRequest,
     request: Request,
-    user: dict = Depends(require_role("clinician")),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Add a manual timeline event to a payer enrollment."""
     payer = await get_credentialing_payer(payer_id)
@@ -644,7 +644,7 @@ async def add_timeline_event(
 async def get_timeline(
     payer_id: str,
     request: Request,
-    user: dict = Depends(require_role("clinician")),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Get timeline events for a payer enrollment."""
     payer = await get_credentialing_payer(payer_id)
@@ -674,7 +674,7 @@ async def get_timeline(
 async def draft_followup(
     payer_id: str,
     request: Request,
-    user: dict = Depends(require_role("clinician")),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """AI-generate a follow-up message for a pending application."""
     payer = await get_credentialing_payer(payer_id)
@@ -703,7 +703,7 @@ async def draft_followup(
 @router.post("/credentialing/generate-caqh")
 async def generate_caqh(
     request: Request,
-    user: dict = Depends(require_role("clinician")),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """AI-generate CAQH profile text from existing practice data."""
     practice = await get_practice_profile(user["uid"])

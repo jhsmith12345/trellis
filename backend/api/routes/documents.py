@@ -253,7 +253,7 @@ Please complete these documents before your appointment. If you have questions, 
 — {practice_name}
 """
 
-        send_email(
+        await send_email(
             to=client_email,
             subject=f"Documents Ready for Signing — {practice_name}",
             html_body=html,
@@ -435,7 +435,7 @@ If you have questions, please contact your care coordinator.
 — {practice_name}
 """
 
-    send_email(
+    await send_email(
         to=pkg["client_email"],
         subject=f"Documents Ready for Signing — {practice_name}",
         html_body=html,

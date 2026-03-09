@@ -254,7 +254,7 @@ async def websocket_session(ws: WebSocket):
                 )
 
                 # Alert BD of new warm lead
-                notify_bd_new_intake(
+                await notify_bd_new_intake(
                     client_name=client_id,  # best we have from voice
                     source="voice",
                     transcript=full_transcript,
@@ -268,7 +268,7 @@ async def websocket_session(ws: WebSocket):
             if booking:
                 logger.info("Sending booking confirmation emails for appointment %s", booking.get("id"))
                 try:
-                    send_clinician_confirmation(
+                    await send_clinician_confirmation(
                         clinician_email=booking.get("clinician_email", ""),
                         clinician_name=booking.get("clinician_name", "Clinician"),
                         practice_name=booking.get("practice_name", ""),
@@ -279,12 +279,13 @@ async def websocket_session(ws: WebSocket):
                         duration_minutes=booking.get("duration_minutes", 60),
                         transcript=full_transcript,
                         appointment_id=booking.get("id"),
+                        clinician_uid=session_context.get("clinician_id"),
                     )
                 except Exception as e:
                     logger.error("Failed to send clinician confirmation: %s: %s", type(e).__name__, e)
 
                 try:
-                    send_client_confirmation(
+                    await send_client_confirmation(
                         client_email=booking.get("client_email", ""),
                         client_name=booking.get("client_name", ""),
                         clinician_name=booking.get("clinician_name", "your clinician"),
@@ -292,6 +293,7 @@ async def websocket_session(ws: WebSocket):
                         scheduled_at=booking.get("scheduled_at", ""),
                         meet_link=booking.get("meet_link"),
                         duration_minutes=booking.get("duration_minutes", 60),
+                        clinician_uid=session_context.get("clinician_id"),
                     )
                 except Exception as e:
                     logger.error("Failed to send client confirmation: %s: %s", type(e).__name__, e)

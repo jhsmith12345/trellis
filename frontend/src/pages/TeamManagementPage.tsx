@@ -293,6 +293,9 @@ export default function TeamManagementPage() {
                   <th className="text-left px-4 py-3 text-xs font-semibold text-warm-400 uppercase tracking-wide">
                     Status
                   </th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-warm-400 uppercase tracking-wide">
+                    Google
+                  </th>
                   <th className="text-right px-6 py-3 text-xs font-semibold text-warm-400 uppercase tracking-wide">
                     Actions
                   </th>
@@ -365,6 +368,18 @@ export default function TeamManagementPage() {
                       >
                         {clinician.status}
                       </span>
+                    </td>
+
+                    {/* Google Connection */}
+                    <td className="px-4 py-4">
+                      {(clinician as any).google_connected ? (
+                        <span className="inline-flex items-center gap-1.5 text-xs text-teal-700">
+                          <span className="w-2 h-2 rounded-full bg-teal-500" />
+                          Connected
+                        </span>
+                      ) : (
+                        <span className="text-xs text-warm-400">Not connected</span>
+                      )}
                     </td>
 
                     {/* Actions */}

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { useApi } from "../hooks/useApi";
+import { useAuth } from "../hooks/useAuth";
 import { useMinuteTick } from "../hooks/useSessionWindow";
 import { isInSessionWindow } from "../lib/sessionWindow";
 import type { Appointment } from "../types";
@@ -238,6 +239,8 @@ export default function ClientDetailPage() {
   const { clientId } = useParams();
   const api = useApi();
   const navigate = useNavigate();
+  const { isOwner, practiceType } = useAuth();
+  const canSeeBilling = practiceType === "solo" || isOwner;
 
   const [client, setClient] = useState<ClientDetail | null>(null);
   const [docStatus, setDocStatus] = useState<DocStatus | null>(null);
@@ -423,27 +426,31 @@ export default function ClientDetailPage() {
         setTreatmentPlan(planData);
         setAppointments(apptData.appointments);
 
-        // Load superbills for this client
-        try {
-          const sbData = await api.get<SuperbillsResponse>(
-            `/api/superbills/client/${clientId}`
-          );
-          setSuperbills(sbData.superbills);
-          if (sbData.client_balance) {
-            setClientBalance(sbData.client_balance);
+        // Load superbills for this client (owner/solo only)
+        if (canSeeBilling) {
+          try {
+            const sbData = await api.get<SuperbillsResponse>(
+              `/api/superbills/client/${clientId}`
+            );
+            setSuperbills(sbData.superbills);
+            if (sbData.client_balance) {
+              setClientBalance(sbData.client_balance);
+            }
+          } catch {
+            // Non-critical
           }
-        } catch {
-          // Non-critical
         }
 
-        // Load authorizations for this client
-        try {
-          const authData = await api.get<AuthorizationsResponse>(
-            `/api/authorizations/client/${clientData.firebase_uid}`
-          );
-          setAuthorizations(authData.authorizations);
-        } catch {
-          // Non-critical
+        // Load authorizations for this client (owner/solo only)
+        if (canSeeBilling) {
+          try {
+            const authData = await api.get<AuthorizationsResponse>(
+              `/api/authorizations/client/${clientData.firebase_uid}`
+            );
+            setAuthorizations(authData.authorizations);
+          } catch {
+            // Non-critical
+          }
         }
 
         // Load doc status using firebase_uid
@@ -458,12 +465,14 @@ export default function ClientDetailPage() {
           }
         }
 
-        // Check if billing service is connected
-        try {
-          const billingSettings = await api.get<{ connected: boolean }>("/api/billing/settings");
-          setBillingConnected(billingSettings.connected);
-        } catch {
-          // Non-critical
+        // Check if billing service is connected (owner/solo only)
+        if (canSeeBilling) {
+          try {
+            const billingSettings = await api.get<{ connected: boolean }>("/api/billing/settings");
+            setBillingConnected(billingSettings.connected);
+          } catch {
+            // Non-critical
+          }
         }
       } catch (err) {
         console.error("Failed to load client detail:", err);
@@ -1422,10 +1431,10 @@ export default function ClientDetailPage() {
         </SectionCard>
 
         {/* ----------------------------------------------------------------- */}
-        {/* Clinical Notes */}
+        {/* Clinical Notes & Live Sessions */}
         {/* ----------------------------------------------------------------- */}
         <SectionCard
-          title="Clinical Notes"
+          title="Clinical Notes & Live Sessions"
           icon={
             <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5">
               <path
@@ -1447,7 +1456,7 @@ export default function ClientDetailPage() {
                 <svg viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
                   <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" />
                 </svg>
-                New Note
+                New Session
               </Link>
             )
           }
@@ -1502,7 +1511,7 @@ export default function ClientDetailPage() {
               ))}
             </div>
           ) : (
-            <EmptyState text="No clinical notes generated yet. Generate a note from an encounter using the 'Generate Note' button." />
+            <EmptyState text="No clinical notes yet. Record a live session or create a note to get started." />
           )}
         </SectionCard>
 
@@ -1636,9 +1645,9 @@ export default function ClientDetailPage() {
         </SectionCard>
 
         {/* ----------------------------------------------------------------- */}
-        {/* Authorizations */}
+        {/* Authorizations (owner/solo only) */}
         {/* ----------------------------------------------------------------- */}
-        <SectionCard
+        {canSeeBilling && <SectionCard
           title="Authorizations"
           icon={
             <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5">
@@ -1877,12 +1886,12 @@ export default function ClientDetailPage() {
               </div>
             </div>
           )}
-        </SectionCard>
+        </SectionCard>}
 
         {/* ----------------------------------------------------------------- */}
-        {/* Superbills */}
+        {/* Superbills (owner/solo only) */}
         {/* ----------------------------------------------------------------- */}
-        <SectionCard
+        {canSeeBilling && <SectionCard
           title="Superbills"
           icon={
             <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5">
@@ -2050,7 +2059,7 @@ export default function ClientDetailPage() {
           ) : (
             <EmptyState text="No superbills yet. Superbills are auto-generated when clinical notes are signed." />
           )}
-        </SectionCard>
+        </SectionCard>}
       </div>
 
       {/* ----------------------------------------------------------------- */}

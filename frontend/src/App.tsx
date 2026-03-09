@@ -60,6 +60,17 @@ function ClinicianRoute({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+/** Requires practice owner (or solo practitioner). */
+function OwnerRoute({ children }: { children: ReactNode }) {
+  const { user, loading, role, roleLoading, registered, isOwner, practiceType } = useAuth();
+  if (loading || roleLoading) return <LoadingSpinner />;
+  if (!user) return <Navigate to="/" replace />;
+  if (!registered) return <UnregisteredGate />;
+  if (role !== "clinician") return <Navigate to="/client/dashboard" replace />;
+  if (practiceType === "solo" || isOwner) return <>{children}</>;
+  return <Navigate to="/dashboard" replace />;
+}
+
 /** Requires client role. */
 function ClientRoute({ children }: { children: ReactNode }) {
   const { user, loading, role, roleLoading, registered } = useAuth();
@@ -108,15 +119,15 @@ function AppRoutes() {
         <Route path="/notes/:noteId" element={<NoteEditorPage />} />
         <Route path="/treatment-plans/:planId" element={<TreatmentPlanEditorPage />} />
         <Route path="/schedule" element={<SchedulePage />} />
-        <Route path="/billing" element={<BillingPage />} />
-        <Route path="/billing/reports" element={<FinancialReportsPage />} />
-        <Route path="/billing/claims/:superbillId/review" element={<ClaimReviewPage />} />
-        <Route path="/billing/denials" element={<DenialManagementPage />} />
+        <Route path="/billing" element={<OwnerRoute><BillingPage /></OwnerRoute>} />
+        <Route path="/billing/reports" element={<OwnerRoute><FinancialReportsPage /></OwnerRoute>} />
+        <Route path="/billing/claims/:superbillId/review" element={<OwnerRoute><ClaimReviewPage /></OwnerRoute>} />
+        <Route path="/billing/denials" element={<OwnerRoute><DenialManagementPage /></OwnerRoute>} />
         <Route path="/settings/practice" element={<PracticeSettingsPage />} />
-        <Route path="/settings/team" element={<TeamManagementPage />} />
-        <Route path="/settings/billing-service" element={<BillingServicePage />} />
-        <Route path="/settings/credentialing" element={<CredentialingPage />} />
-        <Route path="/settings/audit-log" element={<AuditLogPage />} />
+        <Route path="/settings/team" element={<OwnerRoute><TeamManagementPage /></OwnerRoute>} />
+        <Route path="/settings/billing-service" element={<OwnerRoute><BillingServicePage /></OwnerRoute>} />
+        <Route path="/settings/credentialing" element={<OwnerRoute><CredentialingPage /></OwnerRoute>} />
+        <Route path="/settings/audit-log" element={<OwnerRoute><AuditLogPage /></OwnerRoute>} />
       </Route>
 
       {/* Clinician onboarding — no sidebar */}

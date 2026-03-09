@@ -176,6 +176,51 @@ def _check_speech() -> dict:
         return {"status": "error", "message": msg[:200]}
 
 
+async def _check_oauth_config() -> dict:
+    """Check Google OAuth 2.0 configuration status."""
+    try:
+        client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "")
+        client_secret = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "")
+        encryption_key = os.getenv("OAUTH_TOKEN_ENCRYPTION_KEY", "")
+        allow_fallback = os.getenv("ALLOW_SA_FALLBACK", "1").lower() in ("1", "true", "yes")
+
+        if not client_id or not client_secret:
+            if allow_fallback:
+                return {
+                    "status": "warning",
+                    "message": "OAuth not configured — using SA delegation fallback",
+                }
+            return {
+                "status": "error",
+                "message": "GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET not set",
+            }
+
+        if not encryption_key:
+            return {
+                "status": "error",
+                "message": "OAUTH_TOKEN_ENCRYPTION_KEY not set — cannot store OAuth tokens",
+            }
+
+        # Count clinicians with OAuth connected
+        from db import get_pool
+        pool = await get_pool()
+        row = await pool.fetchrow(
+            "SELECT count(*) AS total, "
+            "count(google_refresh_token_enc) AS connected "
+            "FROM clinicians"
+        )
+        total = row["total"] if row else 0
+        connected = row["connected"] if row else 0
+
+        return {
+            "status": "ok",
+            "message": f"OAuth configured ({connected}/{total} clinicians connected)",
+            "sa_fallback": allow_fallback,
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)[:200]}
+
+
 @router.post("/health")
 async def health_check():
     """Comprehensive health check verifying all integrations.
@@ -192,6 +237,7 @@ async def health_check():
     gmail_result = _check_gmail()
     drive_result = _check_drive()
     speech_result = _check_speech()
+    oauth_result = await _check_oauth_config()
 
     checks = {
         "database": db_result,
@@ -200,6 +246,7 @@ async def health_check():
         "gmail": gmail_result,
         "drive": drive_result,
         "speech_to_text": speech_result,
+        "google_oauth": oauth_result,
     }
 
     # Determine overall status

@@ -180,7 +180,7 @@ async def invite_client(
     invite_link = f"{FRONTEND_URL}/?invite={token}"
 
     try:
-        send_email(
+        await send_email(
             to=body.email,
             subject=f"{clinician_name} has invited you to {practice_name}",
             html_body=(
@@ -192,6 +192,7 @@ async def invite_client(
                 f"<p>This invitation expires in 30 days.</p>"
                 f"<p>— The Trellis Team</p>"
             ),
+            clinician_uid=user["uid"],
         )
     except Exception as e:
         logger.error("Failed to send client invitation email to %s: %s", body.email, e)
@@ -716,7 +717,7 @@ async def initiate_discharge(
         # Delete Calendar event
         if appt.get("calendar_event_id"):
             try:
-                delete_calendar_event(appt["calendar_event_id"], clinician_email=appt.get("clinician_email", ""))
+                await delete_calendar_event(appt["calendar_event_id"], clinician_email=appt.get("clinician_email", ""), clinician_uid=appt.get("clinician_id"))
             except Exception as e:
                 logger.error(
                     "Failed to delete calendar event %s during discharge: %s",

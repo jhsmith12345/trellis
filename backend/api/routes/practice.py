@@ -653,7 +653,7 @@ async def invite_team_member(
     practice = await get_practice(user["practice_id"])
     practice_name = practice["name"] if practice else "the practice"
     try:
-        send_email(
+        await send_email(
             to=body.email,
             subject=f"You've been invited to join {practice_name} on Trellis",
             html_body=(
@@ -664,6 +664,7 @@ async def invite_team_member(
                 f"address ({body.email}). You'll be automatically linked to the practice.</p>"
                 f"<p>— The Trellis Team</p>"
             ),
+            clinician_uid=user["uid"],
         )
     except Exception as e:
         logger.error("Failed to send invitation email to %s: %s", body.email, e)

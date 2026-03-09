@@ -580,11 +580,12 @@ async def process_single_appointment(
 
     try:
         # Step 2: Find ALL recordings matching the Meet code
-        recordings = get_all_recordings_for_event(
+        recordings = await get_all_recordings_for_event(
             calendar_event_id=calendar_event_id,
             meet_link=meet_link,
             search_minutes=RECORDING_SEARCH_WINDOW,
             clinician_email=appointment.get("clinician_email", ""),
+            clinician_uid=appointment.get("clinician_id"),
         )
 
         if not recordings:
@@ -612,7 +613,7 @@ async def process_single_appointment(
         mime_type = "video/mp4"
 
         for rec in recordings:
-            download_result = download_recording(rec["id"], clinician_email=appointment.get("clinician_email", ""))
+            download_result = await download_recording(rec["id"], clinician_email=appointment.get("clinician_email", ""), clinician_uid=appointment.get("clinician_id"))
             if not download_result:
                 logger.warning("Failed to download fragment %s, skipping", rec["id"])
                 continue
@@ -685,7 +686,7 @@ async def process_single_appointment(
         # Strip Meet link so old link goes dead
         if calendar_event_id:
             try:
-                strip_conference_data(calendar_event_id, clinician_email=appointment.get("clinician_email", ""))
+                await strip_conference_data(calendar_event_id, clinician_email=appointment.get("clinician_email", ""), clinician_uid=appointment.get("clinician_id"))
             except Exception as e:
                 logger.error("Failed to strip conference data for %s: %s", appt_id, e)
 
@@ -693,7 +694,7 @@ async def process_single_appointment(
         recordings_deleted = 0
         if delete_after:
             for fid in file_ids:
-                if delete_drive_file(fid, clinician_email=appointment.get("clinician_email", "")):
+                if await delete_drive_file(fid, clinician_email=appointment.get("clinician_email", ""), clinician_uid=appointment.get("clinician_id")):
                     recordings_deleted += 1
                 else:
                     logger.warning("Failed to delete recording %s", fid)
@@ -902,11 +903,12 @@ async def _trigger_reconfirmation(appointment: dict, request: Request) -> None:
 
     try:
         from mailer import send_email
-        send_email(
+        await send_email(
             to=next_appt["client_email"],
             subject=f"Confirm Your Next Appointment — {date_str}",
             html_body=html,
             text_body=text,
+            clinician_uid=appointment.get("clinician_id"),
         )
         logger.info(
             "Sent reconfirmation email for appointment %s (next: %s)",

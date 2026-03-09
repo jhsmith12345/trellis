@@ -157,8 +157,8 @@ export default function ManualNotePage() {
   useEffect(() => {
     async function load() {
       try {
-        const data = await api.get<ClientOption[]>("/api/clients");
-        const active = data.filter((c) => c.status !== "discharged");
+        const resp = await api.get<{ clients: ClientOption[] }>("/api/clients");
+        const active = (resp.clients || []).filter((c) => c.status !== "discharged");
         setClients(active);
         if (!clientId && active.length === 1 && active[0]) {
           setClientId(active[0].firebase_uid);
@@ -494,7 +494,7 @@ export default function ManualNotePage() {
     <div className="px-8 py-8 max-w-4xl">
       {/* Back link */}
       <Link
-        to={preselectedClientId ? `/clients/${preselectedClientId}` : "/clients"}
+        to="/clients"
         className="inline-flex items-center gap-1 text-sm text-warm-500 hover:text-warm-700 transition-colors mb-6"
       >
         <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
@@ -505,9 +505,9 @@ export default function ManualNotePage() {
 
       {/* Header */}
       <div className="mb-8">
-        <h1 className="font-display text-2xl font-bold text-warm-800">New Clinical Note</h1>
+        <h1 className="font-display text-2xl font-bold text-warm-800">Session Documentation</h1>
         <p className="text-sm text-warm-500 mt-1">
-          Record a session, dictate your notes, or write them manually.
+          Document your session with live recording, post-session dictation, or manual entry. No Google Workspace required — works with just your browser.
         </p>
       </div>
 
@@ -592,7 +592,7 @@ export default function ManualNotePage() {
           <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
             <path d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" />
           </svg>
-          Record Session
+          Live Session
         </button>
         <button
           onClick={() => setMode("dictation")}
@@ -606,7 +606,7 @@ export default function ManualNotePage() {
             <path d="M7 4a3 3 0 016 0v6a3 3 0 11-6 0V4z" />
             <path d="M5.5 9.643a.75.75 0 00-1.5 0V10c0 3.06 2.29 5.585 5.25 5.954V17.5h-1.5a.75.75 0 000 1.5h4.5a.75.75 0 000-1.5h-1.5v-1.546A6.001 6.001 0 0016 10v-.357a.75.75 0 00-1.5 0V10a4.5 4.5 0 01-9 0v-.357z" />
           </svg>
-          AI Dictation
+          Post-Session Notes
         </button>
         <button
           onClick={() => setMode("form")}
@@ -658,9 +658,10 @@ export default function ManualNotePage() {
                   <path d="M19 10v1a7 7 0 01-14 0v-1M12 18v4m-4 0h8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
                 </svg>
               </div>
-              <h3 className="text-lg font-semibold text-warm-800 mb-2">Record a Live Session</h3>
+              <h3 className="text-lg font-semibold text-warm-800 mb-2">Record During Your Session</h3>
               <p className="text-sm text-warm-500 mb-6 max-w-md mx-auto">
-                Record your session in real-time with live transcription.
+                Use your browser's microphone to transcribe the session as it happens.
+                No Meet recording or Workspace account needed — just click start before your session begins.
                 When you're done, AI will generate a structured {FORMAT_LABELS[noteFormat]} from the transcript.
               </p>
               <button
@@ -825,9 +826,9 @@ export default function ManualNotePage() {
           <div className="bg-white rounded-2xl border border-warm-100 shadow-sm overflow-hidden">
             <div className="px-6 py-4 bg-warm-50 border-b border-warm-100 flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-semibold text-warm-700">Session Notes</h3>
+                <h3 className="text-sm font-semibold text-warm-700">Post-Session Notes</h3>
                 <p className="text-xs text-warm-400 mt-0.5">
-                  Dictate or type your session notes freely. AI will structure them into a {FORMAT_LABELS[noteFormat]}.
+                  After your session, dictate or type what happened in any order. AI will structure it into a {FORMAT_LABELS[noteFormat]}.
                 </p>
               </div>
               {speechSupported && (
@@ -962,13 +963,13 @@ export default function ManualNotePage() {
         <p className="text-xs text-warm-500 leading-relaxed">
           {mode === "record" ? (
             <>
-              <strong>Record Session:</strong> Record your live session with real-time transcription.
+              <strong>Live Session:</strong> Transcribe your session in real-time using your browser's microphone.
               You can pause and resume during the session. When finished, review the transcript and
               generate a structured {FORMAT_LABELS[noteFormat]}. You can edit the note before signing.
             </>
           ) : mode === "dictation" ? (
             <>
-              <strong>AI Dictation:</strong> Speak or type your session notes in any order — observations,
+              <strong>Post-Session Notes:</strong> After your session, speak or type what happened in any order — observations,
               client quotes, interventions, plans, anything you remember. The AI will organize your notes
               into a proper {FORMAT_LABELS[noteFormat]} format. You can review and edit the generated note
               before signing.

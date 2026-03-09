@@ -330,13 +330,14 @@ async def book_appointment(
         summary = f"{type_info['display']} — {body.client_name}"
 
         try:
-            meet_link, event_id = create_calendar_event(
+            meet_link, event_id = await create_calendar_event(
                 summary=summary,
                 start_dt=appt_dt.isoformat(),
                 end_dt=end_dt.isoformat(),
                 attendee_emails=[body.client_email, body.clinician_email],
                 description=f"Type: {body.type} (CPT {type_info['cpt']})\nClient: {body.client_name}",
                 clinician_email=body.clinician_email,
+                clinician_uid=body.clinician_id,
             )
         except Exception as e:
             logger.error("Calendar event creation failed: %s", e)
@@ -457,13 +458,13 @@ async def patch_appointment(
 
     if body.status == "cancelled" and appt.get("calendar_event_id"):
         try:
-            delete_calendar_event(appt["calendar_event_id"], clinician_email=appt.get("clinician_email", ""))
+            await delete_calendar_event(appt["calendar_event_id"], clinician_email=appt.get("clinician_email", ""), clinician_uid=appt.get("clinician_id"))
         except Exception as e:
             logger.error("Failed to delete calendar event: %s", e)
 
     if body.status == "completed" and appt.get("calendar_event_id"):
         try:
-            strip_conference_data(appt["calendar_event_id"], clinician_email=appt.get("clinician_email", ""))
+            await strip_conference_data(appt["calendar_event_id"], clinician_email=appt.get("clinician_email", ""), clinician_uid=appt.get("clinician_id"))
         except Exception as e:
             logger.error("Failed to strip conference data: %s", e)
 
@@ -655,7 +656,7 @@ async def client_cancel_appointment(
 
     if appt.get("calendar_event_id"):
         try:
-            delete_calendar_event(appt["calendar_event_id"], clinician_email=appt.get("clinician_email", ""))
+            await delete_calendar_event(appt["calendar_event_id"], clinician_email=appt.get("clinician_email", ""), clinician_uid=appt.get("clinician_id"))
         except Exception as e:
             logger.error("Failed to delete calendar event on client cancel: %s", e)
 
@@ -884,11 +885,12 @@ async def send_reconfirmation(
     )
 
     try:
-        send_email(
+        await send_email(
             to=next_appt["client_email"],
             subject=f"Confirm Your Next Appointment — {date_str}",
             html_body=html,
             text_body=text,
+            clinician_uid=next_appt.get("clinician_id"),
         )
     except Exception as e:
         logger.error("Failed to send reconfirmation email: %s", e)
@@ -962,7 +964,7 @@ async def reconfirmation_cancel(token: str, request: Request):
     # Cancel the calendar event
     if appt.get("calendar_event_id"):
         try:
-            delete_calendar_event(appt["calendar_event_id"], clinician_email=appt.get("clinician_email", ""))
+            await delete_calendar_event(appt["calendar_event_id"], clinician_email=appt.get("clinician_email", ""), clinician_uid=appt.get("clinician_id"))
         except Exception as e:
             logger.error("Failed to delete calendar event on reconfirmation cancel: %s", e)
 
@@ -1028,7 +1030,7 @@ async def reconfirmation_change(
     # Delete old calendar event and create new one
     if appt.get("calendar_event_id"):
         try:
-            delete_calendar_event(appt["calendar_event_id"], clinician_email=appt.get("clinician_email", ""))
+            await delete_calendar_event(appt["calendar_event_id"], clinician_email=appt.get("clinician_email", ""), clinician_uid=appt.get("clinician_id"))
         except Exception as e:
             logger.error("Failed to delete old calendar event on reschedule: %s", e)
 
@@ -1036,13 +1038,14 @@ async def reconfirmation_change(
     summary = f"{type_info['display']} — {appt['client_name']}"
 
     try:
-        meet_link, event_id = create_calendar_event(
+        meet_link, event_id = await create_calendar_event(
             summary=summary,
             start_dt=new_dt.isoformat(),
             end_dt=end_dt.isoformat(),
             attendee_emails=[appt["client_email"], appt["clinician_email"]],
             description=f"Type: {appt['type']}\nClient: {appt['client_name']}\n(Rescheduled)",
             clinician_email=appt.get("clinician_email", ""),
+            clinician_uid=appt.get("clinician_id"),
         )
     except Exception as e:
         logger.error("Calendar event creation failed on reschedule: %s", e)
@@ -1098,7 +1101,7 @@ async def cron_check_reconfirmations(
         # Delete calendar event to free the slot
         if appt.get("calendar_event_id"):
             try:
-                delete_calendar_event(appt["calendar_event_id"], clinician_email=appt.get("clinician_email", ""))
+                await delete_calendar_event(appt["calendar_event_id"], clinician_email=appt.get("clinician_email", ""), clinician_uid=appt.get("clinician_id"))
             except Exception as e:
                 logger.error("Failed to delete calendar event for expired reconfirmation %s: %s", appt["id"], e)
 
@@ -1183,11 +1186,12 @@ async def cron_send_reminders(
             subject = f"Reminder: Appointment Tomorrow + {unsigned_count} Unsigned Doc{'s' if unsigned_count != 1 else ''}"
 
         try:
-            send_email(
+            await send_email(
                 to=appt["client_email"],
                 subject=subject,
                 html_body=html,
                 text_body=text,
+                clinician_uid=appt.get("clinician_id"),
             )
             await mark_reminder_sent(appt["id"])
             sent_count += 1
@@ -1231,7 +1235,7 @@ async def cron_check_no_shows(
 
         if appt.get("calendar_event_id"):
             try:
-                strip_conference_data(appt["calendar_event_id"], clinician_email=appt.get("clinician_email", ""))
+                await strip_conference_data(appt["calendar_event_id"], clinician_email=appt.get("clinician_email", ""), clinician_uid=appt.get("clinician_id"))
             except Exception as e:
                 logger.error("Failed to strip conference data for no-show %s: %s", appt["id"], e)
 
@@ -1317,11 +1321,12 @@ Please follow up with the client or proceed at your discretion.
 — {practice_name}"""
 
             try:
-                send_email(
+                await send_email(
                     to=clinician_email,
                     subject=f"Alert: {appt['client_name']} has {unsigned_count} unsigned doc{'s' if unsigned_count != 1 else ''}",
                     html_body=html,
                     text_body=text,
+                    clinician_uid=appt.get("clinician_id"),
                 )
                 clinician_alerts += 1
 
@@ -1393,11 +1398,12 @@ Sign now: {signing_url}
 — {practice_name}"""
 
         try:
-            send_email(
+            await send_email(
                 to=appt["client_email"],
                 subject=f"Please Sign Your Documents Before Your Appointment",
                 html_body=html,
                 text_body=text,
+                clinician_uid=appt.get("clinician_id"),
             )
             client_reminders += 1
 

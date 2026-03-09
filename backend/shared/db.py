@@ -527,6 +527,98 @@ def _clinician_to_dict(r) -> dict:
         "joined_at": r["joined_at"].isoformat() if r["joined_at"] else None,
         "created_at": r["created_at"].isoformat(),
         "updated_at": r["updated_at"].isoformat(),
+        "google_email": r["google_email"] if "google_email" in r.keys() else None,
+        "google_connected": bool(r["google_refresh_token_enc"]) if "google_refresh_token_enc" in r.keys() else False,
+        "google_connected_at": r["google_connected_at"].isoformat() if "google_connected_at" in r.keys() and r["google_connected_at"] else None,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Clinician OAuth Token Storage
+# ---------------------------------------------------------------------------
+
+async def store_clinician_oauth(
+    firebase_uid: str,
+    encrypted_token: bytes,
+    google_email: str,
+    scopes: list[str],
+) -> None:
+    """Store encrypted OAuth refresh token for a clinician."""
+    pool = await get_pool()
+    await pool.execute(
+        """
+        UPDATE clinicians
+        SET google_refresh_token_enc = $1,
+            google_email = $2,
+            google_scopes = $3::text[],
+            google_connected_at = now(),
+            google_disconnected_at = NULL
+        WHERE firebase_uid = $4
+        """,
+        encrypted_token,
+        google_email,
+        scopes,
+        firebase_uid,
+    )
+
+
+async def clear_clinician_oauth(firebase_uid: str) -> None:
+    """Clear stored OAuth token and mark as disconnected."""
+    pool = await get_pool()
+    await pool.execute(
+        """
+        UPDATE clinicians
+        SET google_refresh_token_enc = NULL,
+            google_scopes = NULL,
+            google_disconnected_at = now()
+        WHERE firebase_uid = $1
+        """,
+        firebase_uid,
+    )
+
+
+async def get_clinician_oauth(firebase_uid: str) -> dict | None:
+    """Get OAuth token data for a clinician by Firebase UID."""
+    pool = await get_pool()
+    r = await pool.fetchrow(
+        """
+        SELECT google_refresh_token_enc, google_email, google_scopes,
+               google_connected_at, email
+        FROM clinicians WHERE firebase_uid = $1
+        """,
+        firebase_uid,
+    )
+    if not r:
+        return None
+    return {
+        "google_refresh_token_enc": r["google_refresh_token_enc"],
+        "google_email": r["google_email"],
+        "google_scopes": r["google_scopes"],
+        "google_connected_at": r["google_connected_at"],
+        "email": r["email"],
+    }
+
+
+async def get_clinician_oauth_by_email(email: str) -> dict | None:
+    """Get OAuth token data for a clinician by their email address."""
+    pool = await get_pool()
+    r = await pool.fetchrow(
+        """
+        SELECT google_refresh_token_enc, google_email, google_scopes,
+               google_connected_at, email, firebase_uid
+        FROM clinicians WHERE email = $1
+        """,
+        email,
+    )
+    if not r:
+        return None
+    return {
+        "google_refresh_token_enc": r["google_refresh_token_enc"],
+        "google_email": r["google_email"],
+        "google_scopes": r["google_scopes"],
+        "google_connected_at": r["google_connected_at"],
+        "email": r["email"],
+        "firebase_uid": r["firebase_uid"],
     }
 
 

@@ -9,3 +9,4 @@ firebase-admin==6.6.0
 httpx==0.28.1
 google-api-python-client==2.155.0
 google-auth>=2.36.0
+cryptography>=42.0

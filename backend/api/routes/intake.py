@@ -195,7 +195,7 @@ async def submit_intake(
     )
 
     # Alert BD of new warm lead
-    notify_bd_new_intake(
+    await notify_bd_new_intake(
         client_name=payload.demographics.name,
         source="form",
         transcript=transcript,

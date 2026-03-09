@@ -22,7 +22,7 @@ import sys
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
-from auth import require_role
+from auth import require_role, require_practice_member
 
 sys.path.insert(0, "../shared")
 from db import (
@@ -89,7 +89,7 @@ def _client_ip(request: Request) -> str:
 async def create_auth(
     body: CreateAuthorizationRequest,
     request: Request,
-    user: dict = Depends(require_role("clinician")),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Create a new authorization. Clinician only."""
     auth = await create_authorization(
@@ -125,7 +125,7 @@ async def create_auth(
 @router.get("/authorizations/warnings")
 async def get_auth_warnings(
     request: Request,
-    user: dict = Depends(require_role("clinician")),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Get all authorization warnings: expiring soon + low sessions remaining."""
     expiring = await get_expiring_authorizations(days=14)
@@ -153,7 +153,7 @@ async def get_auth_warnings(
 async def list_client_authorizations(
     client_id: str,
     request: Request,
-    user: dict = Depends(require_role("clinician")),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """List all authorizations for a client. Clinician only."""
     auths = await get_client_authorizations(client_id)
@@ -175,7 +175,7 @@ async def list_client_authorizations(
 async def get_auth(
     auth_id: str,
     request: Request,
-    user: dict = Depends(require_role("clinician")),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Get a single authorization. Clinician only."""
     auth = await get_authorization(auth_id)
@@ -199,7 +199,7 @@ async def update_auth(
     auth_id: str,
     body: UpdateAuthorizationRequest,
     request: Request,
-    user: dict = Depends(require_role("clinician")),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Update an authorization. Clinician only. Only active/pending auths can be updated."""
     existing = await get_authorization(auth_id)
@@ -236,7 +236,7 @@ async def update_auth(
 async def delete_auth(
     auth_id: str,
     request: Request,
-    user: dict = Depends(require_role("clinician")),
+    user: dict = Depends(require_practice_member("owner")),
 ):
     """Delete an authorization. Clinician only."""
     existing = await get_authorization(auth_id)
