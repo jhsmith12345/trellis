@@ -48,3 +48,30 @@ async def require_api_key(request: Request) -> dict:
         )
 
     return account
+
+
+def require_permission(permission: str):
+    """FastAPI dependency factory that checks a specific permission on the account.
+
+    Usage in a route:
+        @router.post("/claims/submit")
+        async def submit(account = Depends(require_permission("billing"))):
+            ...
+
+    Raises 403 if the account doesn't have the required permission enabled.
+    """
+    async def _check(request: Request) -> dict:
+        account = await require_api_key(request)
+        permissions = account.get("permissions") or {}
+        if not permissions.get(permission):
+            logger.warning(
+                "Permission denied: account %s lacks '%s' permission",
+                account["id"], permission,
+            )
+            raise HTTPException(
+                status_code=403,
+                detail=f"Your plan does not include {permission}. Upgrade at trellis.health/signup",
+            )
+        return account
+
+    return _check

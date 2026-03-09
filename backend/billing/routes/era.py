@@ -5,7 +5,7 @@ from dataclasses import asdict
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from auth import require_api_key
+from auth import require_api_key, require_permission
 from db import (
     get_era, get_eras_for_claim, create_era,
     get_claim, update_claim_status, update_claim_adjudication,
@@ -182,7 +182,7 @@ def _serialize_era(era: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 @router.get("/{era_id}", response_model=ERADetailResponse)
-async def get_era_detail(era_id: str, account: dict = Depends(require_api_key)):
+async def get_era_detail(era_id: str, account: dict = Depends(require_permission("billing"))):
     """Return parsed ERA details including adjustment codes with plain-English descriptions."""
     era = await get_era(era_id, str(account["id"]))
     if not era:
@@ -191,7 +191,7 @@ async def get_era_detail(era_id: str, account: dict = Depends(require_api_key)):
 
 
 @router.get("/claim/{claim_id}", response_model=ERAListResponse)
-async def get_eras_for_claim_endpoint(claim_id: str, account: dict = Depends(require_api_key)):
+async def get_eras_for_claim_endpoint(claim_id: str, account: dict = Depends(require_permission("billing"))):
     """Return all ERAs for a claim."""
     eras = await get_eras_for_claim(claim_id, str(account["id"]))
     return {
@@ -201,7 +201,7 @@ async def get_eras_for_claim_endpoint(claim_id: str, account: dict = Depends(req
 
 
 @router.get("/superbill/{superbill_id}", response_model=ERAListResponse)
-async def get_eras_for_superbill_endpoint(superbill_id: str, account: dict = Depends(require_api_key)):
+async def get_eras_for_superbill_endpoint(superbill_id: str, account: dict = Depends(require_permission("billing"))):
     """Return all ERAs for a superbill by looking up the claim via external_superbill_id."""
     account_id = str(account["id"])
     claim = await _find_claim_by_superbill_id(account_id, superbill_id)
@@ -217,7 +217,7 @@ async def get_eras_for_superbill_endpoint(superbill_id: str, account: dict = Dep
 
 
 @router.post("/process", response_model=ERAProcessResponse)
-async def process_era(body: ERAProcessRequest, account: dict = Depends(require_api_key)):
+async def process_era(body: ERAProcessRequest, account: dict = Depends(require_permission("billing"))):
     """Process an incoming ERA/835.
 
     Called when a new ERA arrives (from polling Stedi or webhook simulation).

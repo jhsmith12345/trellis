@@ -11,6 +11,10 @@ interface BillingSettings {
   billing_auto_submit: boolean;
   billing_last_poll_at: string | null;
   api_key_preview: string | null;
+  permissions: {
+    messaging?: boolean;
+    billing?: boolean;
+  } | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -189,6 +193,25 @@ export default function BillingServicePage() {
                     : "Never"}
                 </p>
               </div>
+              {settings?.permissions && (
+                <div>
+                  <p className="text-warm-400 text-xs font-medium uppercase tracking-wide mb-1">
+                    Active Services
+                  </p>
+                  <div className="flex gap-2">
+                    {settings.permissions.messaging && (
+                      <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-teal-50 text-teal-700 border border-teal-200 rounded-full">
+                        Messaging
+                      </span>
+                    )}
+                    {settings.permissions.billing && (
+                      <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-teal-50 text-teal-700 border border-teal-200 rounded-full">
+                        Billing
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

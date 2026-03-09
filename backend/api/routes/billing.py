@@ -2429,14 +2429,34 @@ async def get_billing_settings(
             "billing_last_poll_at": None,
         }
 
-    return {
+    result = {
         "connected": bool(settings.get("billing_api_key")),
         "billing_service_url": settings.get("billing_service_url", "https://billing.trellis.health"),
         "billing_auto_submit": settings.get("billing_auto_submit", False),
         "billing_last_poll_at": settings.get("billing_last_poll_at"),
         # Don't expose full API key — show masked version
         "api_key_preview": (settings["billing_api_key"][:8] + "...") if settings.get("billing_api_key") else None,
+        "permissions": None,
     }
+
+    # Fetch permissions from billing service if connected
+    if result["connected"]:
+        api_key = settings["billing_api_key"]
+        service_url = result["billing_service_url"]
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(
+                    f"{service_url.rstrip('/')}/billing/accounts/me",
+                    headers={"X-API-Key": api_key},
+                )
+                if resp.status_code == 200:
+                    account_data = resp.json()
+                    result["permissions"] = account_data.get("permissions")
+        except Exception:
+            pass  # permissions unavailable — not a blocker
+
+    return result
 
 
 @router.put("/billing/settings")
