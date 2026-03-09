@@ -219,7 +219,7 @@ async def update_practice(practice_id: str, **kwargs) -> None:
     allowed = {
         "name", "type", "tax_id", "npi", "phone", "email", "website",
         "address_line1", "address_line2", "city", "state", "zip",
-        "accepted_insurances", "timezone",
+        "accepted_insurances", "timezone", "sms_enabled",
     }
     fields = {k: v for k, v in kwargs.items() if k in allowed}
     if not fields:
@@ -739,7 +739,8 @@ async def get_practice_profile(clinician_uid: str | None = None) -> dict | None:
                    p.address_line2 AS practice_address_line2,
                    p.city AS practice_city, p.state AS practice_state,
                    p.zip AS practice_zip, p.accepted_insurances,
-                   p.timezone, p.type AS practice_type
+                   p.timezone, p.type AS practice_type,
+                   p.sms_enabled
             FROM clinicians c
             JOIN practices p ON p.id = c.practice_id
             WHERE c.firebase_uid = $1
@@ -756,7 +757,8 @@ async def get_practice_profile(clinician_uid: str | None = None) -> dict | None:
                    p.address_line2 AS practice_address_line2,
                    p.city AS practice_city, p.state AS practice_state,
                    p.zip AS practice_zip, p.accepted_insurances,
-                   p.timezone, p.type AS practice_type
+                   p.timezone, p.type AS practice_type,
+                   p.sms_enabled
             FROM clinicians c
             JOIN practices p ON p.id = c.practice_id
             WHERE c.practice_role = 'owner' AND c.status = 'active'
@@ -797,6 +799,7 @@ async def get_practice_profile(clinician_uid: str | None = None) -> dict | None:
             "practice_type": r["practice_type"],
             "practice_id": str(r["practice_id"]),
             "practice_role": r["practice_role"],
+            "sms_enabled": r.get("sms_enabled") or False,
             "created_at": r["created_at"].isoformat(),
             "updated_at": r["updated_at"].isoformat(),
         }
@@ -1487,7 +1490,7 @@ _CLIENT_FIELDS = {
     "status", "discharged_at", "primary_clinician_id",
     "sex", "payer_id", "default_modality",
     "secondary_payer_name", "secondary_payer_id", "secondary_member_id",
-    "secondary_group_number", "filing_deadline_days",
+    "secondary_group_number", "filing_deadline_days", "sms_opt_in",
 }
 
 
@@ -1999,6 +2002,27 @@ async def mark_reminder_sent(appointment_id: str) -> None:
     )
 
 
+async def mark_sms_reminder_sent(appointment_id: str) -> None:
+    """Mark that an SMS reminder has been sent for an appointment."""
+    pool = await get_pool()
+    await pool.execute(
+        "UPDATE appointments SET sms_reminder_sent_at = now() WHERE id = $1::uuid",
+        appointment_id,
+    )
+
+
+async def get_client_sms_info(firebase_uid: str) -> dict | None:
+    """Get phone + sms_opt_in for a client. Lightweight query for the reminder cron."""
+    pool = await get_pool()
+    r = await pool.fetchrow(
+        "SELECT phone, sms_opt_in FROM clients WHERE firebase_uid = $1",
+        firebase_uid,
+    )
+    if not r:
+        return None
+    return {"phone": r["phone"], "sms_opt_in": r["sms_opt_in"] or False}
+
+
 async def get_past_due_appointments() -> list[dict]:
     """Find appointments where scheduled time + duration has passed but status is still 'scheduled'."""
     pool = await get_pool()
@@ -2295,6 +2319,10 @@ def _client_full_to_dict(r) -> dict:
         "created_at": r["created_at"].isoformat(),
         "updated_at": r["updated_at"].isoformat(),
     }
+    try:
+        d["sms_opt_in"] = r["sms_opt_in"] or False
+    except (KeyError, IndexError):
+        d["sms_opt_in"] = False
     try:
         d["primary_clinician_id"] = r["primary_clinician_id"]
     except (KeyError, IndexError):

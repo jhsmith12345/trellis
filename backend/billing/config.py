@@ -30,5 +30,9 @@ STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 # Platform fee charged on patient payments (percentage)
 PLATFORM_FEE_PERCENT = float(os.getenv("PLATFORM_FEE_PERCENT", "2.9"))
 
+# Telnyx SMS (centralized — therapists never touch this)
+TELNYX_API_KEY = os.getenv("TELNYX_API_KEY", "")
+TELNYX_FROM_NUMBER = os.getenv("TELNYX_FROM_NUMBER", "")
+
 # Cron secret for scheduled endpoints (same pattern as EHR API)
 CRON_SECRET = os.getenv("CRON_SECRET", "")

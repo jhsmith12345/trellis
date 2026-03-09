@@ -46,6 +46,9 @@ from db import (
     get_expired_reconfirmations,
     get_upcoming_appointments_for_reminders,
     mark_reminder_sent,
+    mark_sms_reminder_sent,
+    get_client_sms_info,
+    get_practice_billing_settings,
     get_past_due_appointments,
     get_next_appointment_in_series,
     reschedule_appointment,
@@ -1142,7 +1145,17 @@ async def cron_send_reminders(
     """
     upcoming = await get_upcoming_appointments_for_reminders(hours_ahead=24)
     sent_count = 0
+    sms_sent_count = 0
     errors = 0
+
+    # Check if SMS is available (practice has billing connected + sms_enabled)
+    practice = await get_practice_profile()
+    sms_available = False
+    billing_settings = None
+    if practice and practice.get("sms_enabled"):
+        billing_settings = await get_practice_billing_settings(practice["practice_id"])
+        if billing_settings and billing_settings.get("billing_api_key") and billing_settings.get("billing_service_url"):
+            sms_available = True
 
     for appt in upcoming:
         appt_dt = datetime.fromisoformat(appt["scheduled_at"])
@@ -1208,11 +1221,39 @@ async def cron_send_reminders(
                     "unsigned_doc_count": unsigned_count,
                 },
             )
+
+            # --- SMS reminder (paid feature via billing service) ---
+            if sms_available and billing_settings:
+                try:
+                    client_sms = await get_client_sms_info(appt["client_id"])
+                    if client_sms and client_sms["sms_opt_in"] and client_sms["phone"]:
+                        from sms_service import send_sms_reminder
+                        clinician_name = practice.get("clinician_name", "your provider")
+                        sms_text = (
+                            f"Reminder: Your appointment with {clinician_name} "
+                            f"is {date_str} at {time_str}."
+                        )
+                        if appt.get("meet_link"):
+                            sms_text += f" Join: {appt['meet_link']}"
+                        sms_ok = await send_sms_reminder(
+                            api_key=billing_settings["billing_api_key"],
+                            service_url=billing_settings["billing_service_url"],
+                            to=client_sms["phone"],
+                            message=sms_text,
+                            message_type="appointment_reminder",
+                            appointment_id=appt["id"],
+                        )
+                        if sms_ok:
+                            await mark_sms_reminder_sent(appt["id"])
+                            sms_sent_count += 1
+                except Exception as e:
+                    logger.error("Failed to send SMS reminder for appointment %s: %s", appt["id"], e)
+
         except Exception as e:
             logger.error("Failed to send reminder for appointment %s: %s", appt["id"], e)
             errors += 1
 
-    return {"sent_count": sent_count, "errors": errors}
+    return {"sent_count": sent_count, "sms_sent_count": sms_sent_count, "errors": errors}
 
 
 @router.post("/cron/check-no-shows")

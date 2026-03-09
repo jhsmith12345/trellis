@@ -657,6 +657,68 @@ async def get_communication_history(
     return [dict(r) for r in rows]
 
 
+# ---------------------------------------------------------------------------
+# billing_sms_log
+# ---------------------------------------------------------------------------
+
+async def create_sms_record(
+    account_id: str,
+    phone_hash: str,
+    message_type: str,
+    status: str = "sent",
+    telnyx_message_id: str | None = None,
+    error: str | None = None,
+) -> dict:
+    """Record an SMS send attempt."""
+    pool = await get_pool()
+    sms_id = uuid.uuid4()
+    now = _now()
+    row = await pool.fetchrow(
+        """
+        INSERT INTO billing_sms_log
+            (id, account_id, phone_hash, message_type, status,
+             telnyx_message_id, error, sent_at, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+        RETURNING *
+        """,
+        sms_id, uuid.UUID(account_id), phone_hash, message_type,
+        status, telnyx_message_id, error, now,
+    )
+    return dict(row)
+
+
+async def get_sms_usage(account_id: str) -> dict:
+    """Get SMS usage stats for an account."""
+    pool = await get_pool()
+    aid = uuid.UUID(account_id)
+
+    total = await pool.fetchrow(
+        """
+        SELECT
+            COUNT(*) FILTER (WHERE status = 'sent') AS messages_sent,
+            COUNT(*) FILTER (WHERE status = 'failed') AS messages_failed
+        FROM billing_sms_log
+        WHERE account_id = $1
+        """,
+        aid,
+    )
+
+    this_month = await pool.fetchval(
+        """
+        SELECT COUNT(*) FROM billing_sms_log
+        WHERE account_id = $1 AND status = 'sent'
+          AND sent_at >= DATE_TRUNC('month', NOW())
+        """,
+        aid,
+    )
+
+    return {
+        "messages_sent": total["messages_sent"] or 0,
+        "messages_this_month": this_month or 0,
+        "messages_failed": total["messages_failed"] or 0,
+    }
+
+
 async def get_last_communication(claim_id: str, comm_type: str) -> dict | None:
     """Get the most recent communication of a given type for a claim.
 
