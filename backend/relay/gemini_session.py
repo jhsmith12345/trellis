@@ -173,6 +173,19 @@ option if available, and reassure them that many clients use out-of-network bene
 reimbursement.
 """
 
+CASH_ONLY_PROMPT_TEMPLATE = """
+
+--- Practice Rates (Cash Payment) ---
+This is a cash-pay practice and does not bill insurance directly.
+Do NOT ask about insurance. Instead, after gathering clinical information, share the session rates:
+- Intake assessment: ${intake_rate}/session
+- Ongoing sessions: ${session_rate}/session{sliding_scale_info}
+
+Be straightforward about rates. If the client seems concerned about cost, mention the sliding scale
+option if available. You can also mention that many clients submit superbills to their insurance
+for out-of-network reimbursement, but the practice does not handle insurance billing directly.
+"""
+
 SCHEDULING_PROMPT_TEMPLATE = """
 
 --- Scheduling ---
@@ -443,17 +456,25 @@ Use this email when booking appointments."""
 
     # Inject practice profile info (insurance, rates, scheduling)
     if practice_profile:
+        cash_only = practice_profile.get("cash_only", False)
         accepted = practice_profile.get("accepted_insurances") or []
         session_rate = practice_profile.get("session_rate")
         intake_rate = practice_profile.get("intake_rate")
         sliding_scale = practice_profile.get("sliding_scale", False)
         sliding_scale_min = practice_profile.get("sliding_scale_min")
 
-        if accepted or session_rate or intake_rate:
-            sliding_scale_info = ""
-            if sliding_scale and sliding_scale_min is not None:
-                sliding_scale_info = f"\n- Sliding scale available (minimum ${sliding_scale_min}/session for those with financial need)"
+        sliding_scale_info = ""
+        if sliding_scale and sliding_scale_min is not None:
+            sliding_scale_info = f"\n- Sliding scale available (minimum ${sliding_scale_min}/session for those with financial need)"
 
+        if cash_only:
+            # Cash-only practice: skip insurance questions entirely
+            prompt += CASH_ONLY_PROMPT_TEMPLATE.format(
+                intake_rate=intake_rate or "N/A",
+                session_rate=session_rate or "N/A",
+                sliding_scale_info=sliding_scale_info,
+            )
+        elif accepted or session_rate or intake_rate:
             insurance_list = ", ".join(accepted) if accepted else "None (self-pay only practice)"
 
             prompt += INSURANCE_PROMPT_TEMPLATE.format(

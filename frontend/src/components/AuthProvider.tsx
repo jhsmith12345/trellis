@@ -32,6 +32,7 @@ export interface AuthContextValue {
   clinician: Clinician | null;
   /* Practice initialization & invite flow */
   practiceInitialized: boolean | null;
+  cashOnly: boolean;
   inviteToken: string | null;
   inviteInfo: InviteInfo | null;
   needsClinicianPicker: boolean;
@@ -58,6 +59,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Practice status & invite flow state
   const [practiceInitialized, setPracticeInitialized] = useState<boolean | null>(null);
+  const [cashOnly, setCashOnly] = useState(false);
   const [practiceStatusType, setPracticeStatusType] = useState<string | null>(null);
   const [inviteToken] = useState<string | null>(getInviteTokenFromURL);
   const [inviteInfo, setInviteInfo] = useState<InviteInfo | null>(null);
@@ -90,6 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setPracticeInitialized(data.initialized);
           if (data.initialized) {
             setPracticeStatusType(data.practice_type || null);
+            setCashOnly(data.cash_only || false);
           }
         }
       } catch {
@@ -132,6 +135,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           pType = data.practice_type || null;
           setPracticeInitialized(data.initialized);
           setPracticeStatusType(data.practice_type || null);
+          setCashOnly(data.cash_only || false);
         }
       } catch {
         return; // Can't determine — bail out
@@ -207,6 +211,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
           if (data.practice) {
             setPracticeType(data.practice.type || null);
+            setCashOnly(data.practice.cash_only || false);
           }
         } else {
           // Not registered — auto-register based on practice state
@@ -314,7 +319,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       value={{
         user, loading, role, roleLoading, registered, getIdToken, setRole, registerRole,
         switchRole, practiceId, practiceType, practiceRole, isOwner, clinician,
-        practiceInitialized, inviteToken, inviteInfo, needsClinicianPicker, completeRegistration,
+        practiceInitialized, cashOnly, inviteToken, inviteInfo, needsClinicianPicker, completeRegistration,
       }}
     >
       {children}

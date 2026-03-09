@@ -82,7 +82,7 @@ const inputClass =
   "w-full px-4 py-2.5 rounded-xl border border-warm-200 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 outline-none transition-all text-warm-800 bg-white";
 
 export function IntakeForm({ intakeMode: _intakeMode = "standard" }: { intakeMode?: "standard" | "iop" }) {
-  const { getIdToken } = useAuth();
+  const { getIdToken, cashOnly } = useAuth();
   const { getProfile } = useClientApi();
   const [data, setData] = useState<IntakeData>(empty);
   const [submitting, setSubmitting] = useState(false);
@@ -353,8 +353,8 @@ export function IntakeForm({ intakeMode: _intakeMode = "standard" }: { intakeMod
         </div>
       </fieldset>
 
-      {/* Insurance */}
-      <fieldset className="mb-10">
+      {/* Insurance — hidden for cash-only practices */}
+      {!cashOnly && <fieldset className="mb-10">
         <legend className="text-lg font-semibold text-warm-700 mb-4 pb-2 border-b border-warm-100 w-full">
           Insurance
         </legend>
@@ -427,7 +427,7 @@ export function IntakeForm({ intakeMode: _intakeMode = "standard" }: { intakeMod
             </>
           )}
         </div>
-      </fieldset>
+      </fieldset>}
 
       {/* Session Preferences */}
       <fieldset className="mb-10">

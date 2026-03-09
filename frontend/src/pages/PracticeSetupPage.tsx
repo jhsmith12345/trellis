@@ -39,6 +39,7 @@ interface FormData {
   address_city: string;
   address_state: string;
   address_zip: string;
+  cash_only: boolean;
   accepted_insurances: string[];
   session_rate: string;
   intake_rate: string;
@@ -67,6 +68,7 @@ const INITIAL: FormData = {
   address_city: "",
   address_state: "",
   address_zip: "",
+  cash_only: false,
   accepted_insurances: [],
   session_rate: "",
   intake_rate: "",
@@ -81,7 +83,7 @@ const STEPS = [
   { title: "Practice Info", desc: "Your practice name and specialties" },
   { title: "Credentials", desc: "License and provider information" },
   { title: "Contact & Address", desc: "How clients can reach you" },
-  { title: "Insurance & Rates", desc: "Accepted payers and session fees" },
+  { title: "Billing & Rates", desc: "Payment model and session fees" },
 ];
 
 function FieldLabel({ label, required }: { label: string; required?: boolean }) {
@@ -162,9 +164,10 @@ export default function PracticeSetupPage() {
         address_city: form.address_city || null,
         address_state: form.address_state || null,
         address_zip: form.address_zip || null,
-        accepted_insurances: form.accepted_insurances.length
+        cash_only: form.cash_only,
+        accepted_insurances: form.cash_only ? null : (form.accepted_insurances.length
           ? form.accepted_insurances
-          : null,
+          : null),
         session_rate: form.session_rate ? parseFloat(form.session_rate) : null,
         intake_rate: form.intake_rate ? parseFloat(form.intake_rate) : null,
         sliding_scale: form.sliding_scale,
@@ -407,28 +410,44 @@ export default function PracticeSetupPage() {
           </div>
         )}
 
-        {/* Step 3: Insurance & Rates */}
+        {/* Step 3: Billing & Rates */}
         {step === 3 && (
           <div className="space-y-6">
-            <div>
-              <FieldLabel label="Accepted Insurance" />
-              <div className="grid grid-cols-2 gap-2 mt-2">
-                {COMMON_INSURANCES.map((ins) => (
-                  <button
-                    key={ins}
-                    type="button"
-                    onClick={() => toggleInsurance(ins)}
-                    className={`px-3 py-2 rounded-lg text-sm text-left transition-all ${
-                      form.accepted_insurances.includes(ins)
-                        ? "bg-teal-50 border-2 border-teal-400 text-teal-700 font-medium"
-                        : "bg-white border border-warm-200 text-warm-600 hover:border-warm-300"
-                    }`}
-                  >
-                    {ins}
-                  </button>
-                ))}
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.cash_only}
+                onChange={(e) => set("cash_only", e.target.checked)}
+                className="w-4 h-4 rounded border-warm-300 text-teal-600 focus:ring-teal-500"
+              />
+              <div>
+                <span className="text-sm font-medium text-warm-700">Cash-pay only</span>
+                <p className="text-xs text-warm-400">
+                  Hide insurance fields throughout the app. You can change this later in Practice Settings.
+                </p>
               </div>
-            </div>
+            </label>
+            {!form.cash_only && (
+              <div>
+                <FieldLabel label="Accepted Insurance" />
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  {COMMON_INSURANCES.map((ins) => (
+                    <button
+                      key={ins}
+                      type="button"
+                      onClick={() => toggleInsurance(ins)}
+                      className={`px-3 py-2 rounded-lg text-sm text-left transition-all ${
+                        form.accepted_insurances.includes(ins)
+                          ? "bg-teal-50 border-2 border-teal-400 text-teal-700 font-medium"
+                          : "bg-white border border-warm-200 text-warm-600 hover:border-warm-300"
+                      }`}
+                    >
+                      {ins}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <FieldLabel label="Session Rate ($)" />

@@ -68,7 +68,7 @@ const NAV_ITEMS = [
 ];
 
 export function ClinicianShell() {
-  const { user, practiceType, isOwner } = useAuth();
+  const { user, practiceType, isOwner, cashOnly } = useAuth();
   const navigate = useNavigate();
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -146,7 +146,7 @@ export function ClinicianShell() {
               Billing Service
             </NavLink>
           )}
-          {canSeeAdmin && (
+          {canSeeAdmin && !cashOnly && (
             <NavLink
               to="/settings/credentialing"
               className={({ isActive }) =>

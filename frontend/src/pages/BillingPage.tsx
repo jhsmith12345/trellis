@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { useApi } from "../hooks/useApi";
+import { useAuth } from "../hooks/useAuth";
 import OutstandingBalances from "../components/billing/OutstandingBalances";
 
 // ---------------------------------------------------------------------------
@@ -156,6 +157,7 @@ function getAgingBucket(sb: Superbill): { label: string; color: string } | null 
 
 export default function BillingPage() {
   const api = useApi();
+  const { cashOnly } = useAuth();
   const [superbills, setSuperbills] = useState<Superbill[]>([]);
   const [summary, setSummary] = useState<BillingSummary | null>(null);
   const [enhancedSummary, setEnhancedSummary] = useState<EnhancedSummary | null>(null);
@@ -611,7 +613,7 @@ export default function BillingPage() {
         >
           Outstanding Balances
         </button>
-        {billingConnected && (
+        {billingConnected && !cashOnly && (
           <Link
             to="/billing/denials"
             className="px-4 py-2.5 text-sm font-medium border-b-2 border-transparent text-warm-500 hover:text-warm-700 transition-colors flex items-center gap-1.5"
@@ -723,8 +725,8 @@ export default function BillingPage() {
         </div>
       )}
 
-      {/* Authorization Warnings */}
-      {authWarnings && (authWarnings.expiring.length > 0 || authWarnings.low_sessions.length > 0) && (
+      {/* Authorization Warnings — hidden for cash-only */}
+      {!cashOnly && authWarnings && (authWarnings.expiring.length > 0 || authWarnings.low_sessions.length > 0) && (
         <div className="mb-6 space-y-3">
           {authWarnings.low_sessions.map((w) => (
             <div
@@ -790,8 +792,8 @@ export default function BillingPage() {
         </div>
       )}
 
-      {/* Filing Deadline Warnings */}
-      {filingDeadlines.length > 0 && (
+      {/* Filing Deadline Warnings — hidden for cash-only */}
+      {!cashOnly && filingDeadlines.length > 0 && (
         <div className="mb-6 space-y-2">
           <h2 className="text-xs font-semibold text-warm-400 uppercase tracking-wide mb-2">
             Filing Deadline Alerts
@@ -1123,8 +1125,8 @@ export default function BillingPage() {
                             </button>
                           )}
 
-                          {/* CMS-1500 Download */}
-                          {sb.has_pdf && (
+                          {/* CMS-1500 Download — insurance only */}
+                          {!cashOnly && sb.has_pdf && (
                             <button
                               onClick={() => handleDownloadCms1500(sb.id)}
                               disabled={downloadingCmsId === sb.id}
@@ -1141,24 +1143,26 @@ export default function BillingPage() {
                             </button>
                           )}
 
-                          {/* 837P EDI Download */}
-                          <button
-                            onClick={() => handleDownloadEdi837(sb.id)}
-                            disabled={downloadingEdiId === sb.id}
-                            className="p-1.5 text-warm-400 hover:text-purple-600 transition-colors disabled:opacity-50"
-                            title="Download 837P EDI"
-                          >
-                            {downloadingEdiId === sb.id ? (
-                              <span className="w-4 h-4 block border-2 border-purple-200 border-t-purple-600 rounded-full animate-spin" />
-                            ) : (
-                              <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-                                <path fillRule="evenodd" d="M4.5 2A1.5 1.5 0 003 3.5v13A1.5 1.5 0 004.5 18h11a1.5 1.5 0 001.5-1.5V7.621a1.5 1.5 0 00-.44-1.06l-4.12-4.122A1.5 1.5 0 0011.378 2H4.5zm4.75 6.25a.75.75 0 01.75.75v2.19l.72-.72a.75.75 0 111.06 1.06l-2 2a.75.75 0 01-1.06 0l-2-2a.75.75 0 011.06-1.06l.72.72V9a.75.75 0 01.75-.75z" clipRule="evenodd" />
-                              </svg>
-                            )}
-                          </button>
+                          {/* 837P EDI Download — insurance only */}
+                          {!cashOnly && (
+                            <button
+                              onClick={() => handleDownloadEdi837(sb.id)}
+                              disabled={downloadingEdiId === sb.id}
+                              className="p-1.5 text-warm-400 hover:text-purple-600 transition-colors disabled:opacity-50"
+                              title="Download 837P EDI"
+                            >
+                              {downloadingEdiId === sb.id ? (
+                                <span className="w-4 h-4 block border-2 border-purple-200 border-t-purple-600 rounded-full animate-spin" />
+                              ) : (
+                                <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                                  <path fillRule="evenodd" d="M4.5 2A1.5 1.5 0 003 3.5v13A1.5 1.5 0 004.5 18h11a1.5 1.5 0 001.5-1.5V7.621a1.5 1.5 0 00-.44-1.06l-4.12-4.122A1.5 1.5 0 0011.378 2H4.5zm4.75 6.25a.75.75 0 01.75.75v2.19l.72-.72a.75.75 0 111.06 1.06l-2 2a.75.75 0 01-1.06 0l-2-2a.75.75 0 011.06-1.06l.72.72V9a.75.75 0 01.75-.75z" clipRule="evenodd" />
+                                </svg>
+                              )}
+                            </button>
+                          )}
 
-                          {/* Submit Claim (billing service) */}
-                          {billingConnected && sb.status === "generated" && (
+                          {/* Submit Claim (billing service) — insurance only */}
+                          {!cashOnly && billingConnected && sb.status === "generated" && (
                             <button
                               onClick={() => handleSubmitClaim(sb.id)}
                               disabled={submittingClaimId === sb.id}

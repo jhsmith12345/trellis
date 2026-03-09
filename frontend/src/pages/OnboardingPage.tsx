@@ -10,9 +10,9 @@ import type { IntakeMode } from "../components/AuthProvider";
 type View = "insurance" | "choice" | "voice" | "form";
 
 export default function OnboardingPage() {
-  const { user, inviteInfo } = useAuth();
+  const { user, inviteInfo, cashOnly } = useAuth();
   const navigate = useNavigate();
-  const [view, setView] = useState<View>("insurance");
+  const [view, setView] = useState<View>(cashOnly ? "choice" : "insurance");
 
   const intakeMode: IntakeMode = inviteInfo?.intake_mode ?? "standard";
   const isIop = intakeMode === "iop";
