@@ -9,7 +9,7 @@ from config import PLATFORM_FEE_PERCENT
 from db import (
     create_payment, get_payment, get_payments_for_claim,
     update_payment_status, create_event, get_claim,
-    get_eras_for_claim,
+    get_eras_for_claim, get_pool,
 )
 from integrations.stripe_connect import stripe_client
 
@@ -227,8 +227,11 @@ async def stripe_webhook(request: Request):
     Instead, it uses Stripe's webhook signature verification.
 
     Handles:
-      - checkout.session.completed: Update payment to completed
+      - checkout.session.completed: Update payment or activate subscription
       - payment_intent.succeeded: Additional confirmation
+      - customer.subscription.deleted: Revoke messaging permission
+      - customer.subscription.updated: Handle cancellation via update
+      - invoice.payment_failed: Log warning (Stripe retries automatically)
     """
     payload = await request.body()
     signature = request.headers.get("Stripe-Signature", "")
@@ -242,9 +245,21 @@ async def stripe_webhook(request: Request):
     logger.info("Stripe webhook received: type=%s id=%s", event.event_type, event.event_id)
 
     if event.event_type == "checkout.session.completed":
-        await _handle_checkout_completed(event.data)
+        session_data = event.data
+        if session_data.get("mode") == "subscription":
+            await _handle_subscription_checkout_completed(session_data)
+        else:
+            await _handle_checkout_completed(session_data)
     elif event.event_type == "payment_intent.succeeded":
         await _handle_payment_intent_succeeded(event.data)
+    elif event.event_type == "customer.subscription.deleted":
+        await _handle_subscription_deleted(event.data)
+    elif event.event_type == "customer.subscription.updated":
+        sub_data = event.data
+        if sub_data.get("cancel_at_period_end") or sub_data.get("status") == "canceled":
+            await _handle_subscription_deleted(sub_data)
+    elif event.event_type == "invoice.payment_failed":
+        await _handle_invoice_payment_failed(event.data)
     else:
         logger.info("Unhandled webhook event type: %s", event.event_type)
 
@@ -341,6 +356,113 @@ async def _handle_payment_intent_succeeded(pi_data: dict):
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+async def _handle_subscription_checkout_completed(session_data: dict):
+    """Handle checkout.session.completed with mode=subscription.
+
+    Activates the messaging permission and stores the subscription ID
+    on the billing account.
+    """
+    account_id = (session_data.get("metadata") or {}).get("trellis_account_id")
+    subscription_id = session_data.get("subscription")
+
+    if not account_id:
+        logger.warning("Subscription checkout missing trellis_account_id in metadata")
+        return
+
+    if not subscription_id:
+        logger.warning("Subscription checkout missing subscription ID")
+        return
+
+    pool = await get_pool()
+    await pool.execute(
+        """UPDATE billing_accounts
+           SET stripe_subscription_id = $1,
+               permissions = permissions || '{"messaging": true}'::jsonb,
+               updated_at = now()
+           WHERE id = $2""",
+        subscription_id, account_id,
+    )
+
+    await create_event(
+        account_id=account_id,
+        event_type="subscription_activated",
+        resource_type="billing_account",
+        resource_id=account_id,
+        data={"subscription_id": subscription_id},
+    )
+    logger.info("Subscription %s activated for account %s", subscription_id, account_id)
+
+
+async def _handle_subscription_deleted(subscription_data: dict):
+    """Handle customer.subscription.deleted — revoke messaging permission."""
+    subscription_id = subscription_data.get("id", "")
+    if not subscription_id:
+        logger.warning("subscription.deleted missing subscription id")
+        return
+
+    account = await _find_account_by_subscription_id(subscription_id)
+    if not account:
+        logger.warning("No account found for subscription_id=%s", subscription_id)
+        return
+
+    account_id = str(account["id"])
+    pool = await get_pool()
+    await pool.execute(
+        """UPDATE billing_accounts
+           SET permissions = jsonb_set(permissions, '{messaging}', 'false'),
+               updated_at = now()
+           WHERE stripe_subscription_id = $1""",
+        subscription_id,
+    )
+
+    await create_event(
+        account_id=account_id,
+        event_type="subscription_cancelled",
+        resource_type="billing_account",
+        resource_id=account_id,
+        data={"subscription_id": subscription_id},
+    )
+    logger.info("Subscription %s cancelled, messaging revoked for account %s", subscription_id, account_id)
+
+
+async def _handle_invoice_payment_failed(invoice_data: dict):
+    """Handle invoice.payment_failed — log warning only.
+
+    Stripe automatically retries failed payments, so we do NOT revoke
+    permissions here. Just log for visibility.
+    """
+    subscription_id = invoice_data.get("subscription", "")
+    attempt_count = invoice_data.get("attempt_count", 0)
+    logger.warning(
+        "Invoice payment failed for subscription %s (attempt %s)",
+        subscription_id, attempt_count,
+    )
+
+    if subscription_id:
+        account = await _find_account_by_subscription_id(subscription_id)
+        if account:
+            await create_event(
+                account_id=str(account["id"]),
+                event_type="payment_failed",
+                resource_type="billing_account",
+                resource_id=str(account["id"]),
+                data={
+                    "subscription_id": subscription_id,
+                    "attempt_count": attempt_count,
+                },
+            )
+
+
+async def _find_account_by_subscription_id(subscription_id: str) -> dict | None:
+    """Look up a billing account by stripe_subscription_id."""
+    pool = await get_pool()
+    row = await pool.fetchrow(
+        "SELECT * FROM billing_accounts WHERE stripe_subscription_id = $1",
+        subscription_id,
+    )
+    return dict(row) if row else None
+
 
 async def _find_payment_by_session_id(session_id: str) -> dict | None:
     """Look up a payment by stripe_checkout_session_id."""

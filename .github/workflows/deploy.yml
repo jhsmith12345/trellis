@@ -15,6 +15,7 @@ jobs:
     outputs:
       api: ${{ steps.changes.outputs.api }}
       relay: ${{ steps.changes.outputs.relay }}
+      billing: ${{ steps.changes.outputs.billing }}
       frontend: ${{ steps.changes.outputs.frontend }}
       landing: ${{ steps.changes.outputs.landing }}
     steps:
@@ -29,6 +30,8 @@ jobs:
             relay:
               - 'backend/relay/**'
               - 'backend/shared/**'
+            billing:
+              - 'backend/billing/**'
             frontend:
               - 'frontend/**'
             landing:
@@ -89,6 +92,35 @@ jobs:
         run: |
           gcloud run deploy trellis-relay \
             --image $AR_REPO/trellis-relay:${{ github.sha }} \
+            --region $REGION \
+            --project $PROJECT_ID \
+            --quiet
+
+  deploy-billing:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.billing == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+
+      - name: Build and push Billing image
+        run: |
+          docker build -f backend/billing/Dockerfile -t $AR_REPO/trellis-billing:${{ github.sha }} -t $AR_REPO/trellis-billing:latest backend/billing/
+          docker push $AR_REPO/trellis-billing --all-tags
+
+      - name: Deploy Billing to Cloud Run
+        run: |
+          gcloud run deploy trellis-billing \
+            --image $AR_REPO/trellis-billing:${{ github.sha }} \
             --region $REGION \
             --project $PROJECT_ID \
             --quiet

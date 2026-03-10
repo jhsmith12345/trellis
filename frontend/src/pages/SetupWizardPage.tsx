@@ -378,6 +378,51 @@ RELAY_URL=\$(gcloud run services describe trellis-relay \\
     --format="value(status.url)")
 info "Relay URL: \${RELAY_URL}"
 
+# \u2500\u2500 Billing Service \u2500\u2500
+info "Building billing service..."
+docker build -t "\${REGISTRY}/billing:latest" \\
+    -f backend/billing/Dockerfile \\
+    backend/billing/
+docker push "\${REGISTRY}/billing:latest"
+ok "Billing image pushed"
+
+info "Deploying billing service to Cloud Run..."
+gcloud run deploy trellis-billing \\
+    --project="\${PROJECT_ID}" \\
+    --region="\${REGION}" \\
+    --image="\${REGISTRY}/billing:latest" \\
+    --platform=managed \\
+    --allow-unauthenticated \\
+    --port=8082 \\
+    --memory=512Mi \\
+    --cpu=1 \\
+    --min-instances=0 \\
+    --max-instances=5 \\
+    --service-account="\${SA_EMAIL}" \\
+    --set-secrets="/app/sa-key.json=sa-key:latest" \\
+    --set-env-vars="\\
+DATABASE_URL=postgresql://\${DB_USER}:\${DB_PASSWORD}@/\${DB_NAME}?host=/cloudsql/\${DB_CONNECTION_NAME},\\
+ALLOWED_ORIGINS=https://\${DOMAIN},\\
+CRON_SECRET=\${CRON_SECRET},\\
+STEDI_API_KEY=CHANGE_ME,\\
+STRIPE_SECRET_KEY=CHANGE_ME,\\
+STRIPE_WEBHOOK_SECRET=CHANGE_ME,\\
+TELNYX_API_KEY=CHANGE_ME,\\
+TELNYX_FROM_NUMBER=CHANGE_ME,\\
+PLATFORM_FEE_PERCENT=3.0,\\
+GOOGLE_APPLICATION_CREDENTIALS=/app/sa-key.json" \\
+    --add-cloudsql-instances="\${DB_CONNECTION_NAME}"
+ok "Billing service deployed"
+
+BILLING_URL=\$(gcloud run services describe trellis-billing \\
+    --project="\${PROJECT_ID}" --region="\${REGION}" \\
+    --format="value(status.url)")
+info "Billing URL: \${BILLING_URL}"
+
+warn "Update billing service env vars with real values:"
+warn "  STEDI_API_KEY, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET,"
+warn "  TELNYX_API_KEY, TELNYX_FROM_NUMBER, PLATFORM_FEE_PERCENT"
+
 # \u2500\u2500 Frontend Service \u2500\u2500
 info "Building frontend..."
 docker build -t "\${REGISTRY}/frontend:latest" \\
@@ -564,6 +609,7 @@ echo "  Services:"
 echo "    Frontend:  \${FRONTEND_URL}"
 echo "    API:       \${API_URL}"
 echo "    Relay:     \${RELAY_URL}"
+echo "    Billing:   \${BILLING_URL}"
 echo ""
 echo "  Custom domain: https://\${DOMAIN}"
 echo ""
