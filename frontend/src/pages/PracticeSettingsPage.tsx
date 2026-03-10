@@ -44,6 +44,7 @@ interface FormData {
   address_zip: string;
   accepted_insurances: string[];
   cash_only: boolean;
+  booking_enabled: boolean;
   session_rate: string;
   intake_rate: string;
   sliding_scale: boolean;
@@ -74,6 +75,7 @@ function profileToForm(p: PracticeProfile): FormData {
     address_zip: p.address_zip || "",
     accepted_insurances: p.accepted_insurances || [],
     cash_only: p.cash_only || false,
+    booking_enabled: p.booking_enabled !== false,
     session_rate: p.session_rate != null ? String(p.session_rate) : "",
     intake_rate: p.intake_rate != null ? String(p.intake_rate) : "",
     sliding_scale: p.sliding_scale || false,
@@ -152,7 +154,7 @@ export default function PracticeSettingsPage() {
             license_number: "", license_state: "", npi: "", tax_id: "",
             specialties: "", bio: "", phone: "", email: "", website: "",
             address_line1: "", address_line2: "", address_city: "",
-            address_state: "", address_zip: "", cash_only: false, accepted_insurances: [],
+            address_state: "", address_zip: "", cash_only: false, booking_enabled: true, accepted_insurances: [],
             session_rate: "", intake_rate: "", sliding_scale: false,
             sliding_scale_min: "", default_session_duration: "53",
             intake_duration: "53", timezone: "America/New_York",
@@ -167,10 +169,18 @@ export default function PracticeSettingsPage() {
     load();
   }, [api]);
 
-  if (loading || !form) {
+  if (loading) {
     return (
       <div className="flex items-center justify-center py-16">
         <div className="w-6 h-6 border-2 border-teal-200 border-t-teal-600 rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!form) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <p className="text-sm text-red-600">{error || "Failed to load profile"}</p>
       </div>
     );
   }
@@ -220,6 +230,7 @@ export default function PracticeSettingsPage() {
         address_state: form.address_state || null,
         address_zip: form.address_zip || null,
         cash_only: form.cash_only,
+        booking_enabled: form.booking_enabled,
         accepted_insurances: form.cash_only
           ? []
           : form.accepted_insurances.length
@@ -492,6 +503,18 @@ export default function PracticeSettingsPage() {
             <div>
               <span className="text-sm font-medium text-warm-800">Cash-only practice</span>
               <p className="text-xs text-warm-500 mt-0.5">Hides insurance billing, credentialing, and claims throughout the app</p>
+            </div>
+          </label>
+          <label className="flex items-center gap-3 cursor-pointer p-3 bg-warm-50 rounded-lg border border-warm-200">
+            <input
+              type="checkbox"
+              checked={form.booking_enabled}
+              onChange={(e) => set("booking_enabled", e.target.checked)}
+              className="w-4 h-4 rounded border-warm-300 text-teal-600 focus:ring-teal-500"
+            />
+            <div>
+              <span className="text-sm font-medium text-warm-800">Allow client booking</span>
+              <p className="text-xs text-warm-500 mt-0.5">When disabled, clients cannot book appointments from their portal</p>
             </div>
           </label>
           {!form.cash_only && (

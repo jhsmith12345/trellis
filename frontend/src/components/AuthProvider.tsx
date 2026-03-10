@@ -1,4 +1,4 @@
-import { createContext, useEffect, useState, useCallback, useRef, type ReactNode } from "react";
+import { createContext, useEffect, useState, useCallback, useMemo, useRef, type ReactNode } from "react";
 import { auth, onAuthStateChanged, type User } from "../lib/firebase";
 import { API_BASE } from "../lib/api-config";
 import type { PracticeType, PracticeRole, Clinician } from "../types";
@@ -33,6 +33,7 @@ export interface AuthContextValue {
   /* Practice initialization & invite flow */
   practiceInitialized: boolean | null;
   cashOnly: boolean;
+  bookingEnabled: boolean;
   inviteToken: string | null;
   inviteInfo: InviteInfo | null;
   needsClinicianPicker: boolean;
@@ -60,6 +61,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Practice status & invite flow state
   const [practiceInitialized, setPracticeInitialized] = useState<boolean | null>(null);
   const [cashOnly, setCashOnly] = useState(false);
+  const [bookingEnabled, setBookingEnabled] = useState(true);
   const [practiceStatusType, setPracticeStatusType] = useState<string | null>(null);
   const [inviteToken] = useState<string | null>(getInviteTokenFromURL);
   const [inviteInfo, setInviteInfo] = useState<InviteInfo | null>(null);
@@ -69,10 +71,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const isOwner = practiceRole === "owner";
 
-  async function getIdToken(): Promise<string> {
+  const getIdToken = useCallback(async (): Promise<string> => {
     if (!user) throw new Error("Not authenticated");
     return user.getIdToken();
-  }
+  }, [user]);
 
   function clearPracticeState() {
     setPracticeId(null);
@@ -93,6 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (data.initialized) {
             setPracticeStatusType(data.practice_type || null);
             setCashOnly(data.cash_only || false);
+            setBookingEnabled(data.booking_enabled !== false);
           }
         }
       } catch {
@@ -136,6 +139,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setPracticeInitialized(data.initialized);
           setPracticeStatusType(data.practice_type || null);
           setCashOnly(data.cash_only || false);
+          setBookingEnabled(data.booking_enabled !== false);
         }
       } catch {
         return; // Can't determine — bail out
@@ -212,6 +216,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (data.practice) {
             setPracticeType(data.practice.type || null);
             setCashOnly(data.practice.cash_only || false);
+            setBookingEnabled(data.practice.booking_enabled !== false);
           }
         } else {
           // Not registered — auto-register based on practice state
@@ -319,7 +324,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       value={{
         user, loading, role, roleLoading, registered, getIdToken, setRole, registerRole,
         switchRole, practiceId, practiceType, practiceRole, isOwner, clinician,
-        practiceInitialized, cashOnly, inviteToken, inviteInfo, needsClinicianPicker, completeRegistration,
+        practiceInitialized, cashOnly, bookingEnabled, inviteToken, inviteInfo, needsClinicianPicker, completeRegistration,
       }}
     >
       {children}

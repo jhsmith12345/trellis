@@ -52,7 +52,7 @@ interface ClientProfile {
 }
 
 export default function ClientDashboardPage() {
-  const { user } = useAuth();
+  const { user, bookingEnabled } = useAuth();
   const api = useApi();
 
   const [nextAppt, setNextAppt] = useState<Appointment | null>(null);
@@ -270,12 +270,14 @@ export default function ClientDashboardPage() {
             ) : (
               <div className="py-4">
                 <p className="text-warm-400">No upcoming appointments.</p>
-                <Link
-                  to="/client/appointments"
-                  className="inline-block mt-3 text-sm font-medium text-teal-600 hover:text-teal-700 transition-colors"
-                >
-                  Schedule an appointment &rarr;
-                </Link>
+                {bookingEnabled && (
+                  <Link
+                    to="/client/appointments"
+                    className="inline-block mt-3 text-sm font-medium text-teal-600 hover:text-teal-700 transition-colors"
+                  >
+                    Schedule an appointment &rarr;
+                  </Link>
+                )}
               </div>
             )}
           </div>
@@ -335,7 +337,7 @@ export default function ClientDashboardPage() {
                 </svg>
               </div>
               <p className="text-sm font-medium text-warm-800">View Appointments</p>
-              <p className="text-xs text-warm-400 mt-0.5">Schedule or view sessions</p>
+              <p className="text-xs text-warm-400 mt-0.5">{bookingEnabled ? "Schedule or view sessions" : "View your sessions"}</p>
             </Link>
           )}
 

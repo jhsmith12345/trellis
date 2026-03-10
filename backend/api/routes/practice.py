@@ -106,6 +106,7 @@ class PracticeProfileUpdate(BaseModel):
     timezone: str | None = None
     practice_type: str | None = None
     cash_only: bool | None = None
+    booking_enabled: bool | None = None
 
 
 class InviteClinicianRequest(BaseModel):
@@ -147,6 +148,7 @@ async def practice_status():
         "practice_name": info["practice_name"],
         "practice_type": info["practice_type"],
         "cash_only": info.get("cash_only", False),
+        "booking_enabled": info.get("booking_enabled", True),
     }
 
 
@@ -554,6 +556,7 @@ async def update_profile(
         "practice_name", "tax_id", "phone", "email", "website",
         "address_line1", "address_line2", "address_city", "address_state",
         "address_zip", "accepted_insurances", "timezone", "practice_type", "cash_only",
+        "booking_enabled",
     }
     practice_fields = {k: v for k, v in fields.items() if k in _PRACTICE_ONLY_FIELDS}
 

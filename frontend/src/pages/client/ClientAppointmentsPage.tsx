@@ -87,7 +87,7 @@ type TabKey = "upcoming" | "past" | "book";
 // ---------------------------------------------------------------------------
 
 export default function ClientAppointmentsPage() {
-  const { user } = useAuth();
+  const { user, bookingEnabled } = useAuth();
   const api = useApi();
   const [searchParams] = useSearchParams();
 
@@ -316,7 +316,7 @@ export default function ClientAppointmentsPage() {
           [
             { key: "upcoming" as TabKey, label: "Upcoming" },
             { key: "past" as TabKey, label: "Past" },
-            ...(!isDischarged
+            ...(!isDischarged && bookingEnabled
               ? [
                   { key: "book" as TabKey, label: "Book Session" },
                 ]
@@ -397,7 +397,7 @@ export default function ClientAppointmentsPage() {
           {upcoming.length === 0 ? (
             <div className="text-center py-12 bg-white rounded-2xl border border-warm-200">
               <p className="text-warm-400 mb-3">No upcoming appointments.</p>
-              {!isDischarged && (
+              {!isDischarged && bookingEnabled && (
                 <button
                   onClick={() => setTab("book")}
                   className="text-sm font-medium text-teal-600 hover:text-teal-700 transition-colors"

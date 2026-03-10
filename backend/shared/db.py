@@ -220,6 +220,7 @@ async def update_practice(practice_id: str, **kwargs) -> None:
         "name", "type", "tax_id", "npi", "phone", "email", "website",
         "address_line1", "address_line2", "city", "state", "zip",
         "accepted_insurances", "timezone", "sms_enabled", "cash_only",
+        "booking_enabled",
     }
     fields = {k: v for k, v in kwargs.items() if k in allowed}
     if not fields:
@@ -257,6 +258,7 @@ def _practice_to_dict(r) -> dict:
         "accepted_insurances": r["accepted_insurances"] or [],
         "timezone": r["timezone"],
         "cash_only": r.get("cash_only", False) or False,
+        "booking_enabled": r.get("booking_enabled", True) if r.get("booking_enabled") is not None else True,
         "created_at": r["created_at"].isoformat(),
         "updated_at": r["updated_at"].isoformat(),
     }
@@ -696,7 +698,7 @@ async def upsert_practice_profile(clinician_uid: str, **kwargs) -> str:
         "address_line1": "address_line1", "address_line2": "address_line2",
         "address_city": "city", "address_state": "state", "address_zip": "zip",
         "accepted_insurances": "accepted_insurances", "timezone": "timezone",
-        "cash_only": "cash_only",
+        "cash_only": "cash_only", "booking_enabled": "booking_enabled",
     }
     _CLINICIAN_LEVEL = {
         "clinician_name", "credentials", "license_number", "license_state",
@@ -742,7 +744,7 @@ async def get_practice_profile(clinician_uid: str | None = None) -> dict | None:
                    p.city AS practice_city, p.state AS practice_state,
                    p.zip AS practice_zip, p.accepted_insurances,
                    p.timezone, p.type AS practice_type,
-                   p.sms_enabled, p.cash_only
+                   p.sms_enabled, p.cash_only, p.booking_enabled
             FROM clinicians c
             JOIN practices p ON p.id = c.practice_id
             WHERE c.firebase_uid = $1
@@ -760,7 +762,7 @@ async def get_practice_profile(clinician_uid: str | None = None) -> dict | None:
                    p.city AS practice_city, p.state AS practice_state,
                    p.zip AS practice_zip, p.accepted_insurances,
                    p.timezone, p.type AS practice_type,
-                   p.sms_enabled, p.cash_only
+                   p.sms_enabled, p.cash_only, p.booking_enabled
             FROM clinicians c
             JOIN practices p ON p.id = c.practice_id
             WHERE c.practice_role = 'owner' AND c.status = 'active'
@@ -803,6 +805,7 @@ async def get_practice_profile(clinician_uid: str | None = None) -> dict | None:
             "practice_role": r["practice_role"],
             "sms_enabled": r.get("sms_enabled") or False,
             "cash_only": r.get("cash_only") or False,
+            "booking_enabled": r.get("booking_enabled", True) if r.get("booking_enabled") is not None else True,
             "created_at": r["created_at"].isoformat(),
             "updated_at": r["updated_at"].isoformat(),
         }
@@ -847,6 +850,7 @@ async def get_practice_profile(clinician_uid: str | None = None) -> dict | None:
         "default_session_duration": r["default_session_duration"],
         "intake_duration": r["intake_duration"],
         "timezone": r["timezone"],
+        "booking_enabled": True,
         "created_at": r["created_at"].isoformat(),
         "updated_at": r["updated_at"].isoformat(),
     }
@@ -3094,7 +3098,7 @@ async def is_practice_initialized() -> dict:
     """Check if any practice exists. Returns initialization status + practice info."""
     pool = await get_pool()
     row = await pool.fetchrow(
-        "SELECT id, name, type, cash_only FROM practices ORDER BY created_at ASC LIMIT 1"
+        "SELECT id, name, type, cash_only, booking_enabled FROM practices ORDER BY created_at ASC LIMIT 1"
     )
     if not row:
         return {"initialized": False}
@@ -3104,6 +3108,7 @@ async def is_practice_initialized() -> dict:
         "practice_id": str(row["id"]),
         "practice_type": row["type"],
         "cash_only": row.get("cash_only") or False,
+        "booking_enabled": row.get("booking_enabled", True) if row.get("booking_enabled") is not None else True,
     }
 
 
