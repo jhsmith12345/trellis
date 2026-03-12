@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "http://localhost:5173")
 
 # Template definitions: key → default title
 TEMPLATES = {
@@ -202,7 +202,7 @@ async def auto_generate_consent_package(
             )
 
         # Send signing email
-        signing_url = f"{FRONTEND_URL}/sign/{package_id}"
+        signing_url = f"{FRONTEND_BASE_URL}/sign/{package_id}"
         doc_count = len(TEMPLATES)
         practice_name = "Trellis"
         if practice_data and practice_data.get("practice_name"):
@@ -389,7 +389,7 @@ async def send_package(
     if practice and practice.get("practice_name"):
         practice_name = practice["practice_name"]
 
-    signing_url = f"{FRONTEND_URL}/sign/{package_id}"
+    signing_url = f"{FRONTEND_BASE_URL}/sign/{package_id}"
     doc_count = len(pkg["documents"])
 
     html = f"""

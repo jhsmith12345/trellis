@@ -132,7 +132,7 @@ class ClientInviteRequest(BaseModel):
     intake_mode: str = "standard"  # "standard" or "iop"
 
 
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "http://localhost:5173")
 
 
 # ---------------------------------------------------------------------------
@@ -177,7 +177,7 @@ async def invite_client(
     practice = await get_practice(practice_id)
     practice_name = practice["name"] if practice else "the practice"
     clinician_name = clinician.get("clinician_name") or "Your clinician"
-    invite_link = f"{FRONTEND_URL}/?invite={token}"
+    invite_link = f"{FRONTEND_BASE_URL}/?invite={token}"
 
     try:
         await send_email(

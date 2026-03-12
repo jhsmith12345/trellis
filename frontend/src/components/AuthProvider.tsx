@@ -1,4 +1,4 @@
-import { createContext, useEffect, useState, useCallback, useMemo, useRef, type ReactNode } from "react";
+import { createContext, useEffect, useState, useCallback, useRef, type ReactNode } from "react";
 import { auth, onAuthStateChanged, type User } from "../lib/firebase";
 import { API_BASE } from "../lib/api-config";
 import type { PracticeType, PracticeRole, Clinician } from "../types";

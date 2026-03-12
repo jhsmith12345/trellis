@@ -215,7 +215,7 @@ async def google_callback(
     logger.info("Google OAuth connected for clinician (email stored)")
 
     # Redirect to frontend settings page
-    redirect_url = f"{FRONTEND_BASE_URL}/settings?tab=profile&google=connected"
+    redirect_url = f"{FRONTEND_BASE_URL}/settings/practice?google=connected"
     return RedirectResponse(url=redirect_url, status_code=302)
 
 

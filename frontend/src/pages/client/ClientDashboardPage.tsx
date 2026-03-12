@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import { useAuth } from "../../hooks/useAuth";
 import { useApi } from "../../hooks/useApi";
 import { useMinuteTick } from "../../hooks/useSessionWindow";
@@ -49,6 +49,7 @@ interface ClientProfile {
   exists: boolean;
   status?: "active" | "discharged" | "inactive";
   discharged_at?: string | null;
+  intake_completed_at?: string | null;
 }
 
 export default function ClientDashboardPage() {
@@ -134,6 +135,11 @@ export default function ClientDashboardPage() {
         <div className="w-10 h-10 border-4 border-teal-200 border-t-teal-600 rounded-full animate-spin" />
       </div>
     );
+  }
+
+  // New clients who haven't completed intake go straight to onboarding
+  if (clientProfile?.exists && !clientProfile.intake_completed_at) {
+    return <Navigate to="/onboarding" replace />;
   }
 
   const isDischarged = clientProfile?.exists && clientProfile.status === "discharged";
@@ -401,7 +407,7 @@ export default function ClientDashboardPage() {
                   />
                 </svg>
               </div>
-              <p className="text-sm font-medium text-warm-800">Voice Intake</p>
+              <p className="text-sm font-medium text-warm-800">Intake</p>
               <p className="text-xs text-warm-400 mt-0.5">Continue your intake</p>
             </Link>
           )}

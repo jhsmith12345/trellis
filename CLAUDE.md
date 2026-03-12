@@ -123,9 +123,9 @@ gcloud iam service-accounts keys create sa-key.json \
 firebase projects:addfirebase $(gcloud config get-value project)
 ```
 - If `firebase` CLI isn't available, tell the user to go to https://console.firebase.google.com and add their project
-- Tell the user to enable these sign-in providers in Firebase Console → Authentication → Sign-in method:
-  - **Google** (required)
-  - **Email/Password** (required)
+- Tell the user to go to Firebase Console → Authentication and click **Get started** first, then:
+  - Enable **Google** (it appears on the initial list — click it, flip the switch, pick support email, save)
+  - Click **Add new provider** to add **Email/Password** (flip the switch, save)
 - Walk the user through getting their Firebase web config from Firebase Console → Project Settings → Your apps → Web app:
   - They need: `apiKey`, `authDomain`, `projectId`, `storageBucket`, `messagingSenderId`, `appId`
 - Update "My Deployment" table with Firebase config values
@@ -192,47 +192,139 @@ make dev        # Start API (8080), Relay (8081), Frontend (5173)
 - If anything fails, check logs and troubleshoot before proceeding
 
 ### PHASE 8 — Build & Deploy to Cloud Run
-Build and deploy all 3 services. Use the service account for API and relay.
 
-**API:**
+**IMPORTANT: Build context.** The API and relay Dockerfiles expect `backend/` as the build context (they `COPY shared/`, `COPY api/`, etc.). `gcloud run deploy --source=backend/api` will NOT work because it sets the build context to `backend/api/` only. Instead, use Cloud Build to build images, then deploy the pre-built images.
+
+**IMPORTANT: Database URL for Cloud Run.** Cloud Run connects to Cloud SQL via Unix socket, not TCP. Use this format:
+```
+DATABASE_URL=postgresql://postgres:<DB_PASSWORD>@/trellis?host=/cloudsql/<PROJECT_ID>:<REGION>:trellis-db
+```
+
+**IMPORTANT: Migrations 016-017 are missing** from the open-source release (they created `billing_accounts`). Migrations 018, 021_account_permissions, and 021_billing_sms will error — this is expected and does not affect core functionality.
+
+**Step 1: Build images with Cloud Build**
+
+API:
 ```bash
+cat > /tmp/cloudbuild-api.yaml << 'EOF'
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/trellis-api', '-f', 'api/Dockerfile', '.']
+images:
+  - 'gcr.io/$PROJECT_ID/trellis-api'
+EOF
+
+gcloud builds submit backend/ \
+  --config=/tmp/cloudbuild-api.yaml \
+  --region=us-central1
+```
+
+Relay:
+```bash
+cat > /tmp/cloudbuild-relay.yaml << 'EOF'
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/trellis-relay', '-f', 'relay/Dockerfile', '.']
+images:
+  - 'gcr.io/$PROJECT_ID/trellis-relay'
+EOF
+
+gcloud builds submit backend/ \
+  --config=/tmp/cloudbuild-relay.yaml \
+  --region=us-central1
+```
+
+Frontend (pass Firebase config and API/WS URLs as build args):
+```bash
+cat > /tmp/cloudbuild-frontend.yaml << 'EOF'
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/trellis-frontend'
+      - '--build-arg'
+      - 'VITE_FIREBASE_API_KEY=<key>'
+      - '--build-arg'
+      - 'VITE_FIREBASE_AUTH_DOMAIN=<domain>'
+      - '--build-arg'
+      - 'VITE_FIREBASE_PROJECT_ID=<project>'
+      - '--build-arg'
+      - 'VITE_FIREBASE_STORAGE_BUCKET=<bucket>'
+      - '--build-arg'
+      - 'VITE_FIREBASE_MESSAGING_SENDER_ID=<sender_id>'
+      - '--build-arg'
+      - 'VITE_FIREBASE_APP_ID=<app_id>'
+      - '--build-arg'
+      - 'VITE_API_URL=<Cloud Run API URL>'
+      - '--build-arg'
+      - 'VITE_WS_URL=wss://<Cloud Run Relay host>'
+      - '.'
+images:
+  - 'gcr.io/$PROJECT_ID/trellis-frontend'
+EOF
+
+gcloud builds submit frontend/ \
+  --config=/tmp/cloudbuild-frontend.yaml \
+  --region=us-central1
+```
+
+**Step 2: Deploy pre-built images to Cloud Run**
+
+Deploy API and relay first (to get their URLs), then frontend, then update API/relay with CORS and frontend URL.
+
+```bash
+SA_EMAIL="trellis-backend@${PROJECT_ID}.iam.gserviceaccount.com"
+
+# API
 gcloud run deploy trellis-api \
-  --source=backend/api \
+  --image=gcr.io/${PROJECT_ID}/trellis-api \
   --region=us-central1 \
   --allow-unauthenticated \
   --service-account=$SA_EMAIL \
   --add-cloudsql-instances=${PROJECT_ID}:us-central1:trellis-db \
   --memory=512Mi --cpu=1 --timeout=3600 \
   --min-instances=0 --max-instances=10 \
-  --set-env-vars="GCP_PROJECT_ID=${PROJECT_ID},GOOGLE_OAUTH_CLIENT_ID=<id>,GOOGLE_OAUTH_CLIENT_SECRET=<secret>,GOOGLE_OAUTH_REDIRECT_URI=<prod redirect>,OAUTH_TOKEN_ENCRYPTION_KEY=<key>,FRONTEND_BASE_URL=<prod url>,ALLOWED_ORIGINS=<prod url>,CRON_SECRET=<secret>"
-```
+  --set-env-vars="GCP_PROJECT_ID=${PROJECT_ID},DATABASE_URL=postgresql://postgres:<DB_PASSWORD>@/trellis?host=/cloudsql/${PROJECT_ID}:us-central1:trellis-db,GOOGLE_OAUTH_CLIENT_ID=<id>,GOOGLE_OAUTH_CLIENT_SECRET=<secret>,GOOGLE_OAUTH_REDIRECT_URI=<API_URL>/api/google/callback,OAUTH_TOKEN_ENCRYPTION_KEY=<key>,FRONTEND_BASE_URL=<FRONTEND_URL>,ALLOWED_ORIGINS=<FRONTEND_URL>,CRON_SECRET=<secret>"
 
-**Relay:**
-```bash
+# Relay
 gcloud run deploy trellis-relay \
-  --source=backend/relay \
+  --image=gcr.io/${PROJECT_ID}/trellis-relay \
   --region=us-central1 \
   --allow-unauthenticated \
   --service-account=$SA_EMAIL \
   --add-cloudsql-instances=${PROJECT_ID}:us-central1:trellis-db \
   --memory=512Mi --cpu=1 --timeout=3600 \
   --min-instances=0 --max-instances=5 \
-  --set-env-vars="GCP_PROJECT_ID=${PROJECT_ID},ALLOWED_ORIGINS=<prod url>"
-```
+  --set-env-vars="GCP_PROJECT_ID=${PROJECT_ID},DATABASE_URL=postgresql://postgres:<DB_PASSWORD>@/trellis?host=/cloudsql/${PROJECT_ID}:us-central1:trellis-db,ALLOWED_ORIGINS=<FRONTEND_URL>"
 
-**Frontend:**
-```bash
+# Frontend
 gcloud run deploy trellis-frontend \
-  --source=frontend \
+  --image=gcr.io/${PROJECT_ID}/trellis-frontend \
   --region=us-central1 \
   --allow-unauthenticated \
   --memory=256Mi --cpu=0.5 --timeout=900 \
   --min-instances=0 --max-instances=3
 ```
 
-- Note: Frontend needs `VITE_*` vars set as build args or in `.env.production` before building
+**Step 3: Post-deploy configuration**
+- Update API env vars with `FRONTEND_BASE_URL`, `ALLOWED_ORIGINS`, and `GOOGLE_OAUTH_REDIRECT_URI` pointing to production URLs
+- Update relay env vars with `ALLOWED_ORIGINS` pointing to frontend URL
+- Walk the user through adding the production OAuth redirect URI:
+  1. Go to: GCP Console → APIs & Services → Credentials
+  2. Click on the "Trellis" OAuth client ID
+  3. Under **Authorized redirect URIs**, click **Add URI**
+  4. Paste: `<Cloud Run API URL>/api/google/callback`
+  5. Click **Save**
+- Walk the user through adding the Cloud Run frontend domain to Firebase authorized domains:
+  1. Go to: Firebase Console → Authentication (left sidebar)
+  2. Click the **Settings** tab at the top
+  3. Scroll down to **Authorized domains**
+  4. Click **Add domain**
+  5. Paste just the domain (no `https://`): e.g. `trellis-frontend-543321659528.us-central1.run.app`
+  6. Click **Add**
+  - Without this step, Google sign-in will fail on the production URL with an "unauthorized domain" error
 - Record all three Cloud Run URLs in "My Deployment" table
-- Update CORS origins and OAuth redirect URIs to use the production URLs
 
 ### PHASE 9 — Domain & SSL (optional)
 - Ask the user: "Do you want a custom domain, or are the Cloud Run URLs fine?"
