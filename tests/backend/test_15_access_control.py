@@ -105,7 +105,7 @@ async def test_client_cannot_book_for_another(client):
             "client_email": "client2@example.com",
             "client_name": "Other Client",
             "clinician_id": "test-clinician-1",
-            "clinician_email": "test@hansmith.com",
+            "clinician_email": "test@example.com",
             "type": "assessment",
             "scheduled_at": (datetime.now() + timedelta(days=7)).isoformat(),
             "duration_minutes": 60,

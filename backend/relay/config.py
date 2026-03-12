@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-PROJECT_ID = os.getenv("GCP_PROJECT_ID", "trellis-mvp")
+PROJECT_ID = os.getenv("GCP_PROJECT_ID", "your-gcp-project")
 REGION = os.getenv("GCP_REGION", "us-central1")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-live-2.5-flash-native-audio")
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",")

@@ -9,8 +9,8 @@
  *   - Clinician: e2e-clinician@test.trellis.dev / Test123456!
  *   - Client: e2e-client@test.trellis.dev / Test123456!
  *
- * These accounts must be pre-created in the Firebase Console for the
- * trellis-mvp project. If they don't exist yet, the auth tests will
+ * These accounts must be pre-created in the Firebase Console for your
+ * project. If they don't exist yet, the auth tests will
  * skip gracefully and document the requirement.
  */
 import { test as base, type Page, expect } from '@playwright/test';

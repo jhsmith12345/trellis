@@ -12,7 +12,7 @@ from google.genai import types
 
 logger = logging.getLogger(__name__)
 
-GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID", "trellis-mvp")
+GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID", "your-gcp-project")
 MODEL_ID = "gemini-2.5-flash"
 
 SYSTEM_INSTRUCTION = """You are a professional credentialing coordinator assistant for a behavioral health practice.

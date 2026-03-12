@@ -110,7 +110,7 @@ async def test_sign_note(client):
     data = resp.json()
     assert data["status"] == "signed"
     assert "content_hash" in data
-    assert data["signed_by"] == "test@hansmith.com"
+    assert data["signed_by"] == "test@example.com"
 
 
 async def test_cannot_edit_signed_note(client):

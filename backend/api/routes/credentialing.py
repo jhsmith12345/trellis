@@ -62,7 +62,7 @@ from followup_drafter import draft_followup_message
 from caqh_generator import generate_caqh_profile_text
 
 logger = logging.getLogger(__name__)
-GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID", "trellis-mvp")
+GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID", "your-gcp-project")
 
 router = APIRouter()
 

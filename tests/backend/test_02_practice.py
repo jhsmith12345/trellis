@@ -30,7 +30,7 @@ async def test_update_practice_profile(client):
             "clinician_name": "Dr. Test Smith",
             "practice_name": "Test Practice",
             "phone": "555-0100",
-            "email": "test@hansmith.com",
+            "email": "test@example.com",
             "session_rate": 150.0,
             "intake_rate": 200.0,
             "accepted_insurances": ["Aetna", "BCBS"],

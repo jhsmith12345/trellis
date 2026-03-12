@@ -1,8 +1,7 @@
-"""HTTP client for sending SMS via the Trellis Billing Service.
+"""HTTP client for sending SMS reminders.
 
-The EHR calls the billing service's /sms/send endpoint to send text
-reminders. Same pattern as billing_service.py — graceful no-op if
-billing isn't connected or SMS isn't enabled.
+Sends text reminders via an external SMS endpoint. Graceful no-op if
+SMS isn't configured or enabled.
 """
 import logging
 

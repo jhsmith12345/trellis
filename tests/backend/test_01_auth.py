@@ -55,7 +55,7 @@ async def test_get_me_registered(client):
     data = resp.json()
     assert data["registered"] is True
     assert data["role"] == "clinician"
-    assert data["email"] == "test@hansmith.com"
+    assert data["email"] == "test@example.com"
 
 
 async def test_get_me_unregistered(client):

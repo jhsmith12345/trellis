@@ -46,7 +46,7 @@ async def _register_and_book(client):
             "client_email": "client@example.com",
             "client_name": "Test Client",
             "clinician_id": "test-clinician-1",
-            "clinician_email": "test@hansmith.com",
+            "clinician_email": "test@example.com",
             "type": "assessment",
             "scheduled_at": future.isoformat(),
             "duration_minutes": 60,

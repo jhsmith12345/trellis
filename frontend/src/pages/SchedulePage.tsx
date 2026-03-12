@@ -169,10 +169,10 @@ export default function SchedulePage() {
                 Get started
               </a>
               <Link
-                to="/settings/billing-service"
+                to="/settings/practice"
                 className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-teal-700 bg-teal-100 rounded-lg hover:bg-teal-200 transition-colors"
               >
-                I have an API key
+                Configure SMS
               </Link>
             </div>
           </div>

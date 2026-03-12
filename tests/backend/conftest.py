@@ -18,12 +18,10 @@ from httpx import ASGITransport, AsyncClient
 # Environment setup — must happen BEFORE importing the app
 # ---------------------------------------------------------------------------
 os.environ["DEV_MODE"] = "1"
-os.environ["DATABASE_URL"] = (
-    "postgresql://postgres:trellis-dev-2026@34.172.69.164:5432/trellis"
-)
-os.environ["CRON_SECRET"] = "dev-cron-secret"
-os.environ["GCP_PROJECT_ID"] = "trellis-mvp"
-os.environ["GCP_REGION"] = "us-central1"
+os.environ.setdefault("DATABASE_URL", "postgresql://postgres:password@localhost:5432/trellis")
+os.environ.setdefault("CRON_SECRET", "dev-cron-secret")
+os.environ.setdefault("GCP_PROJECT_ID", "your-project-id")
+os.environ.setdefault("GCP_REGION", "us-central1")
 
 # Add this directory to sys.path so tests can `from conftest import ...`
 _this_dir = os.path.abspath(os.path.dirname(__file__))
@@ -42,7 +40,7 @@ from main import app  # noqa: E402
 # Token helper
 # ---------------------------------------------------------------------------
 
-def make_token(uid: str = "test-clinician-1", email: str = "test@hansmith.com") -> str:
+def make_token(uid: str = "test-clinician-1", email: str = "test@example.com") -> str:
     """Build a fake JWT accepted by DEV_MODE auth."""
     header = (
         base64.urlsafe_b64encode(json.dumps({"alg": "none"}).encode())
@@ -60,7 +58,7 @@ def make_token(uid: str = "test-clinician-1", email: str = "test@hansmith.com") 
 
 
 # Convenience tokens
-CLINICIAN_TOKEN = make_token("test-clinician-1", "test@hansmith.com")
+CLINICIAN_TOKEN = make_token("test-clinician-1", "test@example.com")
 CLIENT_TOKEN = make_token("test-client-1", "client@example.com")
 CLIENT2_TOKEN = make_token("test-client-2", "client2@example.com")
 
