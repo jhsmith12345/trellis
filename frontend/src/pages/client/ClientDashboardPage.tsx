@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link, Navigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useAuth } from "../../hooks/useAuth";
 import { useApi } from "../../hooks/useApi";
 import { useMinuteTick } from "../../hooks/useSessionWindow";
@@ -137,26 +137,47 @@ export default function ClientDashboardPage() {
     );
   }
 
-  // New clients who haven't completed intake go straight to onboarding
-  if (clientProfile?.exists && !clientProfile.intake_completed_at) {
-    return <Navigate to="/onboarding" replace />;
-  }
-
   const isDischarged = clientProfile?.exists && clientProfile.status === "discharged";
+  const needsIntake = clientProfile?.exists && !clientProfile.intake_completed_at;
 
   return (
     <div className="px-4 md:px-8 py-6 md:py-8 max-w-3xl mx-auto">
       {/* Welcome header */}
       <div className="mb-8">
         <h1 className="font-display text-2xl md:text-3xl font-bold text-warm-800">
-          Welcome back, {displayName}
+          {needsIntake ? `Welcome, ${displayName}` : `Welcome back, ${displayName}`}
         </h1>
         <p className="text-warm-500 mt-1">
           {isDischarged
             ? "Your treatment has concluded. You can still access your records below."
-            : "Here is an overview of your care."}
+            : needsIntake
+              ? "Let\u2019s get you started."
+              : "Here is an overview of your care."}
         </p>
       </div>
+
+      {/* First-time intake prompt */}
+      {needsIntake && !isDischarged && (
+        <Link
+          to="/onboarding"
+          className="block mb-6 bg-teal-50 border border-teal-200 rounded-2xl p-5 md:p-6 hover:bg-teal-100 hover:border-teal-300 transition-all"
+        >
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-teal-100 rounded-xl flex items-center justify-center shrink-0">
+              <svg viewBox="0 0 24 24" fill="none" className="w-6 h-6 text-teal-600">
+                <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-teal-800">Start Your Intake</p>
+              <p className="text-sm text-teal-600 mt-0.5">Complete your intake to get started with your care.</p>
+            </div>
+            <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5 text-teal-400 ml-auto shrink-0">
+              <path d="M9 18l6-6-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </div>
+        </Link>
+      )}
 
       {/* Discharged state banner */}
       {isDischarged && (
